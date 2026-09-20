@@ -17,6 +17,12 @@ if [ ! -f .env ]; then
   echo "Missing .env with BOT_LOGIN and BOT_OAUTH." >&2
   exit 1
 fi
+for key in DEVELOPER_TELEGRAM_BOT_TOKEN DEVELOPER_TELEGRAM_CHAT_ID; do
+  if ! grep -Eq "^${key}=.+" .env; then
+    echo "Missing $key in .env; add it before deploying." >&2
+    exit 1
+  fi
+done
 streamlink --version >/dev/null
 
 echo "Building twitch-recorder..."

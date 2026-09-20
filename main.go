@@ -32,6 +32,8 @@ type channelConfig struct {
 type config struct {
 	botLogin     string
 	token        string
+	telegramBot  string
+	telegramChat string
 	channels     []channelConfig
 	outputDir    string
 	pollInterval time.Duration
@@ -52,8 +54,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	config.outputDir, err = filepath.Abs(config.outputDir)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
 	if err := os.MkdirAll(config.outputDir, 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
+	}
+	if _, err := diskFreeBytes(config.outputDir); err != nil {
+		return fmt.Errorf("check output directory disk space: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -68,6 +77,11 @@ func run() error {
 	}
 	log.Printf("Monitoring %d channels every %s; recordings go to %s", len(config.channels), config.pollInterval, config.outputDir)
 	var monitors sync.WaitGroup
+	monitors.Add(1)
+	go func() {
+		defer monitors.Done()
+		monitorDisk(ctx, client, config)
+	}()
 	for _, channel := range config.channels {
 		monitors.Add(1)
 		go func(channel channelConfig) {
@@ -125,11 +139,19 @@ func readConfig() (config, error) {
 	config := config{
 		botLogin:     strings.TrimSpace(os.Getenv("BOT_LOGIN")),
 		token:        strings.TrimPrefix(strings.TrimSpace(os.Getenv("BOT_OAUTH")), "oauth:"),
+		telegramBot:  strings.TrimPrefix(strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_BOT_TOKEN")), "bot"),
+		telegramChat: strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_CHAT_ID")),
 		outputDir:    strings.TrimSpace(os.Getenv("OUTPUT_DIR")),
 		pollInterval: 30 * time.Second,
 	}
 	if config.botLogin == "" || config.token == "" {
 		return config, errors.New("BOT_LOGIN and BOT_OAUTH are required in .env")
+	}
+	if config.telegramBot == "" || config.telegramChat == "" {
+		return config, errors.New("DEVELOPER_TELEGRAM_BOT_TOKEN and DEVELOPER_TELEGRAM_CHAT_ID are required for disk alerts")
+	}
+	if !validTelegramToken.MatchString(config.telegramBot) {
+		return config, errors.New("DEVELOPER_TELEGRAM_BOT_TOKEN has an invalid format")
 	}
 	channelList := strings.TrimSpace(os.Getenv("CHANNEL_LOGINS"))
 	if channelList == "" {
