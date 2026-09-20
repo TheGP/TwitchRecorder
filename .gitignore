@@ -6,6 +6,7 @@ node_modules/
 /*.mp4
 /*.mkv
 /*.log
+/*.lock
 twitch-recorder
 twitch-recorder.new
 twitch-recorder.exe

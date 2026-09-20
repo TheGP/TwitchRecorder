@@ -68,6 +68,11 @@ func run() error {
 	if _, err := diskFreeBytes(config.outputDir); err != nil {
 		return fmt.Errorf("check output directory disk space: %w", err)
 	}
+	for _, channel := range config.channels {
+		if err := primeRecordingSequence(config.outputDir, channel.login, time.Now()); err != nil {
+			return fmt.Errorf("initialize recording sequence for %s: %w", channel.login, err)
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -147,16 +152,21 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 				log.Printf("Live check failed for %s: %v", channel.login, err)
 			}
 		} else if isLive {
-			output, err := nextRecordingPath(config.outputDir, channel.login, time.Now())
+			recording, err := nextRecordingPath(config.outputDir, channel.login, time.Now())
 			if err != nil {
 				log.Printf("Cannot choose recording filename for %s: %v", channel.login, err)
 			} else if recordings.begin() {
-				log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, output)
-				command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel.login, channel.quality)
+				log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, recording.part)
+				command := exec.CommandContext(ctx, config.streamlink, "--output", recording.part, "https://www.twitch.tv/"+channel.login, channel.quality)
 				command.Stdout = os.Stdout
 				command.Stderr = os.Stderr
 				if err := command.Run(); err != nil && ctx.Err() == nil {
 					log.Printf("Streamlink exited for %s: %v", channel.login, err)
+				}
+				if completed, err := completeRecording(recording); err != nil {
+					log.Printf("Cannot finalize recording for %s: %v", channel.login, err)
+				} else if completed {
+					log.Printf("Recording ready: %s", recording.final)
 				}
 				recordings.end()
 				log.Printf("Recording stopped for %s stream %s", channel.login, streamID)
@@ -166,21 +176,6 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 		select {
 		case <-ctx.Done():
 		case <-time.After(config.pollInterval):
-		}
-	}
-}
-
-func nextRecordingPath(outputDir, login string, start time.Time) (string, error) {
-	base := filepath.Join(outputDir, login+"-"+start.Format("2006-01-02"))
-	for number := 1; ; number++ {
-		path := base + ".ts"
-		if number > 1 {
-			path = fmt.Sprintf("%s-%d.ts", base, number)
-		}
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			return path, nil
-		} else if err != nil {
-			return "", err
 		}
 	}
 }

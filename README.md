@@ -14,7 +14,7 @@ Set `DEVELOPER_TELEGRAM_BOT_TOKEN` and `DEVELOPER_TELEGRAM_CHAT_ID` in `.env` fo
 
 Set `CHANNEL_LOGINS` to comma-separated `username:quality` entries, for example `CHANNEL_LOGINS=n_y_x_official:audio_only,bcomplex_matia:best`. Each quality is passed as the Streamlink stream selector; `best`, `audio_only`, and specific names such as `720p60` are supported when available for that stream. A username without `:quality` defaults to `audio_only`. Repeating a username with different qualities is an error. The old `CHANNEL_LOGIN` setting still works when `CHANNEL_LOGINS` is unset. If neither is set, the app monitors `n_y_x_official` at `audio_only`.
 
-`OUTPUT_DIR` and `POLL_SECONDS` are optional. Recordings use the channel and server-local start date in their filenames, for example `india-2024-09-09.ts`. If that file already exists, the next recording uses `india-2024-09-09-2.ts`, then `-3.ts`, and so on. The output format is `.ts`, matching the existing Streamlink command.
+`OUTPUT_DIR` and `POLL_SECONDS` are optional. Recordings use the channel and server-local start date in their filenames, for example `india-2024-09-09.ts`. If that file already exists, the next recording uses `india-2024-09-09-2.ts`, then `-3.ts`, and so on. Streamlink writes to `.ts.part` while recording; after it exits, the app renames a nonempty file to `.ts`. An orphaned `.part` file is left for manual recovery after a crash. The app keeps daily sequence numbers in `OUTPUT_DIR/.recording-state` so moving finished `.ts` files off the server does not reuse their names. Keep that state directory when cleaning recordings.
 
 ## Run
 
@@ -24,3 +24,9 @@ pm2 logs twitch-recorder
 ```
 
 Deployment builds the Go binary, starts or restarts the PM2 process, and saves the PM2 process list. Run `pm2 startup` once on the server if PM2 should start after a reboot.
+
+## Move completed recordings to Windows
+
+On the Windows computer with `F:\DJ` and SSH access to `root@reviewer`, run `transfer-recordings.ps1 -DryRun` to inspect the completed `.ts` files. Run `register-transfer-task.ps1` to install the `TwitchRecorderTransfer` task. It runs every two hours and at Windows startup; missed runs are retried when the computer is available. The task uses this Windows user's SSH key, so it does not require an interactive login. Its log is `transfer.log` beside the script.
+
+The transfer script ignores `.ts.part` files. For each completed `.ts`, it downloads to a temporary name under `F:\DJ`, compares SHA-256 hashes, renames the local copy, then asks the server to remove the file only if its hash still matches. If a matching local file already exists, it retries only the server removal. A mismatch leaves both files for inspection. Run `transfer-recordings.ps1` manually for an immediate transfer.
