@@ -1,0 +1,11 @@
+.env*
+!.env.example
+recordings/
+node_modules/
+/*.ts
+/*.mp4
+/*.mkv
+/*.log
+twitch-recorder
+twitch-recorder.new
+twitch-recorder.exe
