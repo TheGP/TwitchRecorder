@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -25,7 +26,7 @@ var validLogin = regexp.MustCompile(`^[A-Za-z0-9_]{1,25}$`)
 type config struct {
 	botLogin     string
 	token        string
-	channel      string
+	channels     []string
 	outputDir    string
 	pollInterval time.Duration
 	streamlink   string
@@ -59,36 +60,51 @@ func run() error {
 	if !strings.EqualFold(login, config.botLogin) {
 		return fmt.Errorf("BOT_OAUTH belongs to %q, not BOT_LOGIN %q", login, config.botLogin)
 	}
-	log.Printf("Monitoring %s every %s; recordings go to %s", config.channel, config.pollInterval, config.outputDir)
-	lastValidation := time.Now()
-
-	for ctx.Err() == nil {
-		if time.Since(lastValidation) >= time.Hour {
-			newID, newLogin, err := validateToken(ctx, client, config.token)
+	log.Printf("Monitoring %s every %s; recordings go to %s", strings.Join(config.channels, ", "), config.pollInterval, config.outputDir)
+	var monitors sync.WaitGroup
+	for _, channel := range config.channels {
+		monitors.Add(1)
+		go func() {
+			defer monitors.Done()
+			monitorChannel(ctx, client, clientID, config, channel)
+		}()
+	}
+	validationTicker := time.NewTicker(time.Hour)
+	defer validationTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			monitors.Wait()
+			return nil
+		case <-validationTicker.C:
+			_, validatedLogin, err := validateToken(ctx, client, config.token)
 			if err != nil {
 				log.Printf("Token validation failed: %v", err)
-			} else if !strings.EqualFold(newLogin, config.botLogin) {
-				log.Printf("Token login changed to %q; waiting for correct credentials", newLogin)
-			} else {
-				clientID = newID
-				lastValidation = time.Now()
+			} else if !strings.EqualFold(validatedLogin, config.botLogin) {
+				log.Printf("Token login changed to %q; update BOT_OAUTH", validatedLogin)
 			}
 		}
+	}
+}
 
-		streamID, isLive, err := getStream(ctx, client, config.token, clientID, config.channel)
+func monitorChannel(ctx context.Context, client *http.Client, clientID string, config config, channel string) {
+	for ctx.Err() == nil {
+		streamID, isLive, err := getStream(ctx, client, config.token, clientID, channel)
 		if err != nil {
-			log.Printf("Live check failed: %v", err)
+			if ctx.Err() == nil {
+				log.Printf("Live check failed for %s: %v", channel, err)
+			}
 		} else if isLive {
-			filename := fmt.Sprintf("%s-%s-%s.ts", config.channel, streamID, time.Now().UTC().Format("20060102-150405.000"))
+			filename := fmt.Sprintf("%s-%s-%s.ts", channel, streamID, time.Now().UTC().Format("20060102-150405.000"))
 			output := filepath.Join(config.outputDir, filename)
-			log.Printf("Stream %s is live; recording to %s", streamID, output)
-			command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+config.channel, "audio_only")
+			log.Printf("%s stream %s is live; recording to %s", channel, streamID, output)
+			command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel, "audio_only")
 			command.Stdout = os.Stdout
 			command.Stderr = os.Stderr
 			if err := command.Run(); err != nil && ctx.Err() == nil {
-				log.Printf("Streamlink exited: %v", err)
+				log.Printf("Streamlink exited for %s: %v", channel, err)
 			}
-			log.Printf("Recording stopped for stream %s", streamID)
+			log.Printf("Recording stopped for %s stream %s", channel, streamID)
 		}
 
 		select {
@@ -96,26 +112,30 @@ func run() error {
 		case <-time.After(config.pollInterval):
 		}
 	}
-	return nil
 }
 
 func readConfig() (config, error) {
 	config := config{
 		botLogin:     strings.TrimSpace(os.Getenv("BOT_LOGIN")),
 		token:        strings.TrimPrefix(strings.TrimSpace(os.Getenv("BOT_OAUTH")), "oauth:"),
-		channel:      strings.TrimSpace(os.Getenv("CHANNEL_LOGIN")),
 		outputDir:    strings.TrimSpace(os.Getenv("OUTPUT_DIR")),
 		pollInterval: 30 * time.Second,
 	}
 	if config.botLogin == "" || config.token == "" {
 		return config, errors.New("BOT_LOGIN and BOT_OAUTH are required in .env")
 	}
-	if config.channel == "" {
-		config.channel = "n_y_x_official"
+	channelList := strings.TrimSpace(os.Getenv("CHANNEL_LOGINS"))
+	if channelList == "" {
+		channelList = strings.TrimSpace(os.Getenv("CHANNEL_LOGIN"))
 	}
-	if !validLogin.MatchString(config.channel) {
-		return config, errors.New("CHANNEL_LOGIN must be a Twitch login name")
+	if channelList == "" {
+		channelList = "n_y_x_official"
 	}
+	channels, err := parseChannels(channelList)
+	if err != nil {
+		return config, err
+	}
+	config.channels = channels
 	if config.outputDir == "" {
 		config.outputDir = "recordings"
 	}
@@ -132,6 +152,22 @@ func readConfig() (config, error) {
 	}
 	config.streamlink = streamlink
 	return config, nil
+}
+
+func parseChannels(value string) ([]string, error) {
+	var channels []string
+	seen := make(map[string]bool)
+	for _, part := range strings.Split(value, ",") {
+		channel := strings.ToLower(strings.TrimSpace(part))
+		if !validLogin.MatchString(channel) {
+			return nil, fmt.Errorf("invalid Twitch login %q in CHANNEL_LOGINS", part)
+		}
+		if !seen[channel] {
+			seen[channel] = true
+			channels = append(channels, channel)
+		}
+	}
+	return channels, nil
 }
 
 func loadEnv(path string) error {
