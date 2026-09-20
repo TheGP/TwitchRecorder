@@ -12,7 +12,7 @@ Set `DEVELOPER_TELEGRAM_BOT_TOKEN` and `DEVELOPER_TELEGRAM_CHAT_ID` in `.env` fo
 
 Set `CHANNEL_LOGINS` to comma-separated `username:quality` entries, for example `CHANNEL_LOGINS=n_y_x_official:audio_only,bcomplex_matia:best`. Each quality is passed as the Streamlink stream selector; `best`, `audio_only`, and specific names such as `720p60` are supported when available for that stream. A username without `:quality` defaults to `audio_only`. Repeating a username with different qualities is an error. The old `CHANNEL_LOGIN` setting still works when `CHANNEL_LOGINS` is unset. If neither is set, the app monitors `n_y_x_official` at `audio_only`.
 
-`OUTPUT_DIR` and `POLL_SECONDS` are optional. Recordings use the channel and UTC start date in their filenames, for example `india-2024-09-09.ts`. If that file already exists, the next recording uses `india-2024-09-09-2.ts`, then `-3.ts`, and so on. The output format is `.ts`, matching the existing Streamlink command.
+`OUTPUT_DIR` and `POLL_SECONDS` are optional. Recordings use the channel and server-local start date in their filenames, for example `india-2024-09-09.ts`. If that file already exists, the next recording uses `india-2024-09-09-2.ts`, then `-3.ts`, and so on. The output format is `.ts`, matching the existing Streamlink command.
 
 ## Run
 

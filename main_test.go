@@ -11,7 +11,7 @@ import (
 func TestNextRecordingPath(t *testing.T) {
 	dir := t.TempDir()
 	start := time.Date(2024, 9, 10, 0, 30, 0, 0, time.FixedZone("UTC+2", 2*60*60))
-	want := []string{"india-2024-09-09.ts", "india-2024-09-09-2.ts", "india-2024-09-09-3.ts"}
+	want := []string{"india-2024-09-10.ts", "india-2024-09-10-2.ts", "india-2024-09-10-3.ts"}
 	for _, name := range want {
 		path, err := nextRecordingPath(dir, "india", start)
 		if err != nil {
@@ -25,7 +25,7 @@ func TestNextRecordingPath(t *testing.T) {
 		}
 	}
 	path, err := nextRecordingPath(dir, "other_channel", start)
-	if err != nil || path != filepath.Join(dir, "other_channel-2024-09-09.ts") {
+	if err != nil || path != filepath.Join(dir, "other_channel-2024-09-10.ts") {
 		t.Fatalf("other channel path = %q, error = %v", path, err)
 	}
 }

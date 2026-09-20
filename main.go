@@ -139,7 +139,7 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 }
 
 func nextRecordingPath(outputDir, login string, start time.Time) (string, error) {
-	base := filepath.Join(outputDir, login+"-"+start.UTC().Format("2006-01-02"))
+	base := filepath.Join(outputDir, login+"-"+start.Format("2006-01-02"))
 	for number := 1; ; number++ {
 		path := base + ".ts"
 		if number > 1 {
