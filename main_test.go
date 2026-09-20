@@ -1,9 +1,34 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
+
+func TestNextRecordingPath(t *testing.T) {
+	dir := t.TempDir()
+	start := time.Date(2024, 9, 10, 0, 30, 0, 0, time.FixedZone("UTC+2", 2*60*60))
+	want := []string{"india-2024-09-09.ts", "india-2024-09-09-2.ts", "india-2024-09-09-3.ts"}
+	for _, name := range want {
+		path, err := nextRecordingPath(dir, "india", start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path != filepath.Join(dir, name) {
+			t.Fatalf("path = %q, want %q", path, filepath.Join(dir, name))
+		}
+		if err := os.WriteFile(path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path, err := nextRecordingPath(dir, "other_channel", start)
+	if err != nil || path != filepath.Join(dir, "other_channel-2024-09-09.ts") {
+		t.Fatalf("other channel path = %q, error = %v", path, err)
+	}
+}
 
 func TestParseChannels(t *testing.T) {
 	channels, err := parseChannels(" N_Y_X_Official:audio_only, bcomplex_matia:best, n_y_x_official:audio_only ")

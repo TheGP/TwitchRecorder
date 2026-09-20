@@ -116,21 +116,39 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 				log.Printf("Live check failed for %s: %v", channel.login, err)
 			}
 		} else if isLive {
-			filename := fmt.Sprintf("%s-%s-%s-%s.ts", channel.login, streamID, channel.quality, time.Now().UTC().Format("20060102-150405.000"))
-			output := filepath.Join(config.outputDir, filename)
-			log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, output)
-			command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel.login, channel.quality)
-			command.Stdout = os.Stdout
-			command.Stderr = os.Stderr
-			if err := command.Run(); err != nil && ctx.Err() == nil {
-				log.Printf("Streamlink exited for %s: %v", channel.login, err)
+			output, err := nextRecordingPath(config.outputDir, channel.login, time.Now())
+			if err != nil {
+				log.Printf("Cannot choose recording filename for %s: %v", channel.login, err)
+			} else {
+				log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, output)
+				command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel.login, channel.quality)
+				command.Stdout = os.Stdout
+				command.Stderr = os.Stderr
+				if err := command.Run(); err != nil && ctx.Err() == nil {
+					log.Printf("Streamlink exited for %s: %v", channel.login, err)
+				}
+				log.Printf("Recording stopped for %s stream %s", channel.login, streamID)
 			}
-			log.Printf("Recording stopped for %s stream %s", channel.login, streamID)
 		}
 
 		select {
 		case <-ctx.Done():
 		case <-time.After(config.pollInterval):
+		}
+	}
+}
+
+func nextRecordingPath(outputDir, login string, start time.Time) (string, error) {
+	base := filepath.Join(outputDir, login+"-"+start.UTC().Format("2006-01-02"))
+	for number := 1; ; number++ {
+		path := base + ".ts"
+		if number > 1 {
+			path = fmt.Sprintf("%s-%d.ts", base, number)
+		}
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			return path, nil
+		} else if err != nil {
+			return "", err
 		}
 	}
 }
