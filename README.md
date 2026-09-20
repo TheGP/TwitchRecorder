@@ -8,9 +8,9 @@ Requires Go, Node.js/npm, PM2, and Streamlink on the target machine. Install Str
 
 Copy `.env.example` to `.env` and set `BOT_LOGIN` and `BOT_OAUTH`. The OAuth token must be a Twitch user access token for `BOT_LOGIN`. The app validates it to discover its Client ID, then uses both values to call Get Streams. `.env` is ignored by Git. Restrict access to it on the server (`chmod 600 .env`). Replace the token if it expires or is revoked, then restart the app.
 
-Set `CHANNEL_LOGINS` to comma-separated Twitch usernames, for example `CHANNEL_LOGINS=n_y_x_official,bcomplex_matia`. Spaces and duplicate names are removed. The old `CHANNEL_LOGIN` setting still works for one channel when `CHANNEL_LOGINS` is unset. If neither is set, the app monitors `n_y_x_official`.
+Set `CHANNEL_LOGINS` to comma-separated `username:quality` entries, for example `CHANNEL_LOGINS=n_y_x_official:audio_only,bcomplex_matia:best`. Each quality is passed as the Streamlink stream selector; `best`, `audio_only`, and specific names such as `720p60` are supported when available for that stream. A username without `:quality` defaults to `audio_only`. Repeating a username with different qualities is an error. The old `CHANNEL_LOGIN` setting still works when `CHANNEL_LOGINS` is unset. If neither is set, the app monitors `n_y_x_official` at `audio_only`.
 
-`OUTPUT_DIR` and `POLL_SECONDS` are optional. Recordings use the channel, stream ID, and UTC start time in their filenames. The output format is `.ts`, matching the existing Streamlink command.
+`OUTPUT_DIR` and `POLL_SECONDS` are optional. Recordings use the channel, stream ID, selected quality, and UTC start time in their filenames. The output format is `.ts`, matching the existing Streamlink command.
 
 ## Run
 

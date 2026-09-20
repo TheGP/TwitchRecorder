@@ -22,11 +22,17 @@ import (
 )
 
 var validLogin = regexp.MustCompile(`^[A-Za-z0-9_]{1,25}$`)
+var validQuality = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
+
+type channelConfig struct {
+	login   string
+	quality string
+}
 
 type config struct {
 	botLogin     string
 	token        string
-	channels     []string
+	channels     []channelConfig
 	outputDir    string
 	pollInterval time.Duration
 	streamlink   string
@@ -60,14 +66,14 @@ func run() error {
 	if !strings.EqualFold(login, config.botLogin) {
 		return fmt.Errorf("BOT_OAUTH belongs to %q, not BOT_LOGIN %q", login, config.botLogin)
 	}
-	log.Printf("Monitoring %s every %s; recordings go to %s", strings.Join(config.channels, ", "), config.pollInterval, config.outputDir)
+	log.Printf("Monitoring %d channels every %s; recordings go to %s", len(config.channels), config.pollInterval, config.outputDir)
 	var monitors sync.WaitGroup
 	for _, channel := range config.channels {
 		monitors.Add(1)
-		go func() {
+		go func(channel channelConfig) {
 			defer monitors.Done()
 			monitorChannel(ctx, client, clientID, config, channel)
-		}()
+		}(channel)
 	}
 	validationTicker := time.NewTicker(time.Hour)
 	defer validationTicker.Stop()
@@ -87,24 +93,25 @@ func run() error {
 	}
 }
 
-func monitorChannel(ctx context.Context, client *http.Client, clientID string, config config, channel string) {
+func monitorChannel(ctx context.Context, client *http.Client, clientID string, config config, channel channelConfig) {
+	log.Printf("Monitoring %s at %s", channel.login, channel.quality)
 	for ctx.Err() == nil {
-		streamID, isLive, err := getStream(ctx, client, config.token, clientID, channel)
+		streamID, isLive, err := getStream(ctx, client, config.token, clientID, channel.login)
 		if err != nil {
 			if ctx.Err() == nil {
-				log.Printf("Live check failed for %s: %v", channel, err)
+				log.Printf("Live check failed for %s: %v", channel.login, err)
 			}
 		} else if isLive {
-			filename := fmt.Sprintf("%s-%s-%s.ts", channel, streamID, time.Now().UTC().Format("20060102-150405.000"))
+			filename := fmt.Sprintf("%s-%s-%s-%s.ts", channel.login, streamID, channel.quality, time.Now().UTC().Format("20060102-150405.000"))
 			output := filepath.Join(config.outputDir, filename)
-			log.Printf("%s stream %s is live; recording to %s", channel, streamID, output)
-			command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel, "audio_only")
+			log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, output)
+			command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel.login, channel.quality)
 			command.Stdout = os.Stdout
 			command.Stderr = os.Stderr
 			if err := command.Run(); err != nil && ctx.Err() == nil {
-				log.Printf("Streamlink exited for %s: %v", channel, err)
+				log.Printf("Streamlink exited for %s: %v", channel.login, err)
 			}
-			log.Printf("Recording stopped for %s stream %s", channel, streamID)
+			log.Printf("Recording stopped for %s stream %s", channel.login, streamID)
 		}
 
 		select {
@@ -154,18 +161,30 @@ func readConfig() (config, error) {
 	return config, nil
 }
 
-func parseChannels(value string) ([]string, error) {
-	var channels []string
-	seen := make(map[string]bool)
+func parseChannels(value string) ([]channelConfig, error) {
+	var channels []channelConfig
+	seen := make(map[string]string)
 	for _, part := range strings.Split(value, ",") {
-		channel := strings.ToLower(strings.TrimSpace(part))
-		if !validLogin.MatchString(channel) {
+		login, quality, hasQuality := strings.Cut(strings.TrimSpace(part), ":")
+		login = strings.ToLower(strings.TrimSpace(login))
+		if !validLogin.MatchString(login) {
 			return nil, fmt.Errorf("invalid Twitch login %q in CHANNEL_LOGINS", part)
 		}
-		if !seen[channel] {
-			seen[channel] = true
-			channels = append(channels, channel)
+		if !hasQuality {
+			quality = "audio_only"
 		}
+		quality = strings.TrimSpace(quality)
+		if !validQuality.MatchString(quality) {
+			return nil, fmt.Errorf("invalid Streamlink quality %q for %s", quality, login)
+		}
+		if previous, exists := seen[login]; exists {
+			if previous != quality {
+				return nil, fmt.Errorf("conflicting qualities for %s: %s and %s", login, previous, quality)
+			}
+			continue
+		}
+		seen[login] = quality
+		channels = append(channels, channelConfig{login: login, quality: quality})
 	}
 	return channels, nil
 }
