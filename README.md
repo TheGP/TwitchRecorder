@@ -6,7 +6,9 @@ Checks Twitch's Get Streams API every 30 seconds and records configured channels
 
 Requires Go, Node.js/npm, PM2, and Streamlink on the target machine. Install Streamlink using the [official instructions](https://streamlink.github.io/install). The app and deployment stop with an error when Streamlink is missing; they do not install system packages.
 
-Copy `.env.example` to `.env` and set `BOT_LOGIN` and `BOT_OAUTH`. The OAuth token must be a Twitch user access token for `BOT_LOGIN`. The app validates it to discover its Client ID, then uses both values to call Get Streams. `.env` is ignored by Git. Restrict access to it on the server (`chmod 600 .env`). Replace the token if it expires or is revoked, then restart the app.
+Copy `.env.example` to `.env` and set `BOT_LOGIN` and `BOT_OAUTH`. The OAuth token must be a Twitch user access token for `BOT_LOGIN`. The app validates it to discover its Client ID, then uses both values to call Get Streams. `.env` is ignored by Git. Restrict access to it on the server (`chmod 600 .env`).
+
+The app checks `.env` contents every 5 seconds. After a change remains stable for two checks, it waits until all active Streamlink recordings finish, then exits for PM2 to restart it with the new settings. Other channels continue recording while it waits. A continuously running recording can delay the restart indefinitely. Temporary failures to read `.env` are retried. Editing `.env` does not require running `npm run deploy`.
 
 Set `DEVELOPER_TELEGRAM_BOT_TOKEN` and `DEVELOPER_TELEGRAM_CHAT_ID` in `.env` for disk alerts. The app checks free space on the filesystem containing `OUTPUT_DIR` immediately and every minute on Linux or Windows. Below 1 GB (1,000,000,000 bytes), it sends one Telegram alert; a failed send is retried at the next check. Once free space rises to at least 1 GB, a later drop can trigger a new alert. Deployment checks for these settings before restarting PM2. Since `.env` is ignored by Git, add the Telegram settings on the server before deploying.
 

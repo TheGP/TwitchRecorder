@@ -47,6 +47,10 @@ func main() {
 }
 
 func run() error {
+	envHash, err := hashEnvFile(".env")
+	if err != nil {
+		return fmt.Errorf("read .env: %w", err)
+	}
 	if err := loadEnv(".env"); err != nil {
 		return err
 	}
@@ -76,6 +80,7 @@ func run() error {
 		return fmt.Errorf("BOT_OAUTH belongs to %q, not BOT_LOGIN %q", login, config.botLogin)
 	}
 	log.Printf("Monitoring %d channels every %s; recordings go to %s", len(config.channels), config.pollInterval, config.outputDir)
+	recordings := newRecordingState()
 	var monitors sync.WaitGroup
 	monitors.Add(1)
 	go func() {
@@ -86,16 +91,42 @@ func run() error {
 		monitors.Add(1)
 		go func(channel channelConfig) {
 			defer monitors.Done()
-			monitorChannel(ctx, client, clientID, config, channel)
+			monitorChannel(ctx, client, clientID, config, channel, recordings)
 		}(channel)
 	}
+	envTicker := time.NewTicker(5 * time.Second)
+	defer envTicker.Stop()
 	validationTicker := time.NewTicker(time.Hour)
 	defer validationTicker.Stop()
+	var candidateHash [32]byte
+	hasCandidate := false
 	for {
 		select {
 		case <-ctx.Done():
 			monitors.Wait()
 			return nil
+		case <-recordings.restartReady:
+			log.Print(".env changed and no recordings are active; restarting through PM2")
+			stop()
+			monitors.Wait()
+			return errors.New("restart requested after .env change")
+		case <-envTicker.C:
+			currentHash, err := hashEnvFile(".env")
+			if err != nil {
+				log.Printf("Cannot check .env for changes: %v", err)
+				continue
+			}
+			if currentHash == envHash {
+				hasCandidate = false
+				continue
+			}
+			if !hasCandidate || currentHash != candidateHash {
+				candidateHash = currentHash
+				hasCandidate = true
+				continue
+			}
+			active := recordings.requestRestart()
+			log.Printf(".env changed; waiting for %d active recording(s) before restarting", active)
 		case <-validationTicker.C:
 			_, validatedLogin, err := validateToken(ctx, client, config.token)
 			if err != nil {
@@ -107,7 +138,7 @@ func run() error {
 	}
 }
 
-func monitorChannel(ctx context.Context, client *http.Client, clientID string, config config, channel channelConfig) {
+func monitorChannel(ctx context.Context, client *http.Client, clientID string, config config, channel channelConfig, recordings *recordingState) {
 	log.Printf("Monitoring %s at %s", channel.login, channel.quality)
 	for ctx.Err() == nil {
 		streamID, isLive, err := getStream(ctx, client, config.token, clientID, channel.login)
@@ -119,7 +150,7 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 			output, err := nextRecordingPath(config.outputDir, channel.login, time.Now())
 			if err != nil {
 				log.Printf("Cannot choose recording filename for %s: %v", channel.login, err)
-			} else {
+			} else if recordings.begin() {
 				log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, output)
 				command := exec.CommandContext(ctx, config.streamlink, "--output", output, "https://www.twitch.tv/"+channel.login, channel.quality)
 				command.Stdout = os.Stdout
@@ -127,6 +158,7 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 				if err := command.Run(); err != nil && ctx.Err() == nil {
 					log.Printf("Streamlink exited for %s: %v", channel.login, err)
 				}
+				recordings.end()
 				log.Printf("Recording stopped for %s stream %s", channel.login, streamID)
 			}
 		}
