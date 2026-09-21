@@ -1,7 +1,7 @@
 const el = Object.fromEntries([
   "folder", "total-count", "unwatched-count", "watched-count", "refresh",
   "search", "sort", "select-visible", "selection-count", "mark-selected",
-  "unmark-selected", "mark-all", "list", "list-empty", "player-kind",
+  "unmark-selected", "mark-all", "list", "list-empty",
   "player-panel", "artwork", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "back", "play", "forward", "volume",
   "speed", "fullscreen", "player-watched", "notice"
@@ -211,7 +211,6 @@ async function openRecording(name) {
   notify("Inspecting recording…");
   el["player-title"].textContent = name;
   el["player-subtitle"].textContent = "Loading media details";
-  el["player-kind"].textContent = "LOADING";
   renderList();
   try {
     const info = await api(`/api/recordings/${encodeURIComponent(name)}/info`);
@@ -222,7 +221,6 @@ async function openRecording(name) {
     el.video.hidden = !hasVideo;
     el.artwork.hidden = !hasVideo;
     el["player-body"].classList.toggle("video-mode", hasVideo);
-    el["player-kind"].textContent = info.kind.toUpperCase();
     el["player-subtitle"].textContent = `${displayName(name)} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);
     el.seek.max = String(Math.floor(info.duration));
@@ -233,7 +231,6 @@ async function openRecording(name) {
     await playAt(0);
   } catch (error) {
     if (view.current === name) {
-      el["player-kind"].textContent = "ERROR";
       notify(`Cannot open recording: ${error.message}`);
     }
   }
@@ -277,7 +274,7 @@ for (const media of [el.video, el.audio]) {
   });
   media.addEventListener("error", () => {
     if (media === view.media && media.error && !view.loading) {
-      notify("Playback failed. Check the listener log and FFmpeg installation.");
+      notify(`Playback failed: ${media.error.message || `browser media error ${media.error.code}`}`);
     }
   });
 }

@@ -29,7 +29,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .recording-row:
   gap: 24px;
   border-bottom: 1px solid #202b36;
 }
-.brand, .header-right, .section-heading, .player-heading, .library-controls,
+.brand, .header-right, .section-heading, .library-controls,
 .bulk-bar, .recording-row, .row-main, .row-meta, .transport, .player-options,
 .time-labels { display: flex; align-items: center; }
 .brand { gap: 17px; }
@@ -159,12 +159,11 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .empty-list { color: #8ea0ae; padding: 28px 12px; text-align: center; }
 
 .player-panel {
-  width: 100%; padding: 17px 24px 15px;
+  width: 100%; padding: 14px 24px 15px;
   border: 1px solid #293944; border-radius: 18px;
   background: linear-gradient(165deg, #182630 0%, #111b25 58%, #101820 100%);
   box-shadow: 0 26px 70px #03070b54;
 }
-.player-heading { justify-content: space-between; margin-bottom: 6px; }
 .player-body { max-width: 1000px; margin: 0 auto; }
 .player-body.video-mode {
   max-width: none;
@@ -176,10 +175,6 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .player-panel.is-empty .timeline,
 .player-panel.is-empty .player-control-row,
 .player-panel.is-empty .watched-toggle { display: none; }
-.kind-badge {
-  padding: 5px 8px; border: 1px solid #33514d; border-radius: 6px;
-  color: #9ddfce; font-size: 10px; font-weight: 750; letter-spacing: .08em;
-}
 .artwork {
   position: relative; width: 100%; aspect-ratio: 16 / 9;
   overflow: hidden;
