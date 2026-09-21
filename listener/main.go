@@ -371,7 +371,7 @@ func (a *app) streamHandler(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "-ss", strconv.FormatFloat(start, 'f', 3, 64))
 	}
 	args = append(args, "-i", path, "-map", "0:v:0?", "-map", "0:a:0?",
-		"-dn", "-sn", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-avoid_negative_ts", "make_zero",
+		"-dn", "-sn", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-avoid_negative_ts", "make_zero",
 		"-movflags", "+frag_keyframe+empty_moov+default_base_moof",
 		"-frag_duration", "2000000", "-f", "mp4", "pipe:1")
 	command := exec.CommandContext(r.Context(), a.ffmpeg, args...)
