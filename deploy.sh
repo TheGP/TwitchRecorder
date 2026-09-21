@@ -26,7 +26,7 @@ done
 streamlink --version >/dev/null
 
 echo "Building twitch-recorder..."
-go build -o twitch-recorder.new .
+go build -o twitch-recorder.new ./recorder
 mv -f twitch-recorder.new twitch-recorder
 
 if pm2 describe twitch-recorder >/dev/null 2>&1; then

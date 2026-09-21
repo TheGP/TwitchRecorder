@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1018">
+  <title>Twitch Listener</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">▶</div>
+        <div>
+          <div class="eyebrow">YOUR RECORDING LIBRARY</div>
+          <h1>Twitch Listener</h1>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="service-status"><span class="status-dot"></span> Running locally</span>
+        <span id="folder" class="folder" title="Media folder"></span>
+      </div>
+    </header>
+
+    <main class="main-layout">
+      <section class="library" aria-labelledby="library-title">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">COLLECTION</div>
+            <h2 id="library-title">Recordings</h2>
+          </div>
+          <button id="refresh" class="icon-button" title="Refresh library" aria-label="Refresh library">↻</button>
+        </div>
+
+        <div class="stats" aria-label="Library statistics">
+          <div class="stat"><strong id="total-count">0</strong><span>recordings</span></div>
+          <div class="stat"><strong id="unwatched-count">0</strong><span>unwatched</span></div>
+          <div class="stat"><strong id="watched-count">0</strong><span>watched</span></div>
+        </div>
+
+        <div class="library-controls">
+          <label class="search-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search recordings" autocomplete="off" aria-label="Search recordings">
+          </label>
+          <select id="sort" aria-label="Sort recordings">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">Name A–Z</option>
+          </select>
+        </div>
+
+        <div class="filter-tabs" role="group" aria-label="Filter recordings">
+          <button class="filter active" data-filter="all" aria-pressed="true">All</button>
+          <button class="filter" data-filter="unwatched" aria-pressed="false">Unwatched</button>
+          <button class="filter" data-filter="watched" aria-pressed="false">Watched</button>
+        </div>
+
+        <div class="bulk-bar">
+          <label class="select-visible"><input id="select-visible" type="checkbox"> Select visible</label>
+          <span id="selection-count">0 selected</span>
+          <button id="mark-selected" class="small-button" disabled>Mark watched</button>
+          <button id="unmark-selected" class="small-button" disabled>Mark unwatched</button>
+          <button id="mark-all" class="small-button primary-subtle">Mark all watched</button>
+        </div>
+
+        <div id="list" class="recording-list" aria-live="polite"></div>
+        <p id="list-empty" class="empty-list" hidden>No recordings match this view.</p>
+      </section>
+
+      <aside class="player-panel" aria-labelledby="player-title">
+        <div class="player-heading">
+          <div class="eyebrow">NOW PLAYING</div>
+          <span id="player-kind" class="kind-badge">READY</span>
+        </div>
+        <div id="artwork" class="artwork">
+          <div class="artwork-glow"></div>
+          <div id="artwork-icon" class="artwork-icon" aria-hidden="true">♫</div>
+          <video id="video" playsinline preload="none" hidden></video>
+          <audio id="audio" preload="none" hidden></audio>
+        </div>
+        <h2 id="player-title">Pick a recording</h2>
+        <p id="player-subtitle" class="player-subtitle">Select a file on the left to start listening or watching.</p>
+        <div class="timeline">
+          <input id="seek" type="range" min="0" max="100" value="0" step="1" disabled aria-label="Playback position">
+          <div class="time-labels"><span id="elapsed">0:00</span><span id="duration">0:00</span></div>
+        </div>
+        <div class="transport">
+          <button id="back" class="transport-side" title="Back 15 seconds" aria-label="Back 15 seconds" disabled>↶ <small>15</small></button>
+          <button id="play" class="play-button" aria-label="Play" disabled>▶</button>
+          <button id="forward" class="transport-side" title="Forward 15 seconds" aria-label="Forward 15 seconds" disabled>↷ <small>15</small></button>
+        </div>
+        <div class="player-options">
+          <label>Volume <input id="volume" type="range" min="0" max="1" value="1" step="0.05" aria-label="Volume"></label>
+          <label>Speed <select id="speed" aria-label="Playback speed">
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select></label>
+          <button id="fullscreen" class="text-button" hidden>Fullscreen</button>
+        </div>
+        <button id="player-watched" class="watched-toggle" disabled>Mark as watched</button>
+        <p id="notice" class="notice" role="status"></p>
+        <p class="player-footnote">Completed .ts files only · Watched status stays on this computer</p>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

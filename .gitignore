@@ -1,6 +1,13 @@
 .env*
 !.env.example
-/transfer-config.json
+/transfer/transfer-config.json
+/transfer/*.log
+/transfer/*.lock
+/listener/config.json
+/listener/state.json
+/listener/.state-*.json
+/listener/*.log
+/listener/*.exe
 recordings/
 node_modules/
 /*.ts
