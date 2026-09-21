@@ -64,8 +64,11 @@ function formatSize(bytes) {
   return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
 }
 
-function displayName(name) {
-  return name.replace(/\.ts$/i, "").replace(/-(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})(-\d+)?$/, "");
+function recordingParts(name) {
+  const match = name.match(/^(.*)-(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})(?:-(\d+))?\.ts$/i);
+  return match
+    ? { channel: match[1], date: match[2], number: match[3] }
+    : { channel: name.replace(/\.ts$/i, ""), date: "", number: "" };
 }
 
 function visibleRecordings() {
@@ -96,6 +99,7 @@ function renderList() {
   el.list.replaceChildren();
   el["list-empty"].hidden = files.length !== 0;
   for (const file of files) {
+    const { channel, date, number } = recordingParts(file.name);
     const row = document.createElement("div");
     row.className = "recording-row" + (view.current === file.name ? " active" : "") + (file.watched ? " watched" : "");
     row.setAttribute("role", "button");
@@ -120,24 +124,20 @@ function renderList() {
     main.className = "row-main";
     const title = document.createElement("div");
     title.className = "row-title";
-    title.textContent = file.name;
+    title.textContent = number ? `${channel} #${number}` : channel;
     title.title = file.name;
     const meta = document.createElement("div");
     meta.className = "row-meta";
-    for (const value of [displayName(file.name), formatSize(file.size), new Date(file.modified).toLocaleDateString()]) {
-      const span = document.createElement("span");
-      span.textContent = value;
-      meta.append(span);
-    }
+    meta.textContent = formatSize(file.size);
     main.append(title, meta);
-    row.append(checkbox, icon, main);
-    if (!file.watched) {
-      const dot = document.createElement("span");
-      dot.className = "unwatched-dot";
-      dot.title = "Unwatched";
-      dot.setAttribute("aria-hidden", "true");
-      row.append(dot);
-    }
+    const recordingDate = document.createElement("span");
+    recordingDate.className = "row-date";
+    recordingDate.textContent = date;
+    const dot = document.createElement("span");
+    dot.className = "unwatched-dot" + (file.watched ? " is-invisible" : "");
+    dot.title = file.watched ? "" : "Unwatched";
+    dot.setAttribute("aria-hidden", "true");
+    row.append(checkbox, icon, main, recordingDate, dot);
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "row-delete";
@@ -334,7 +334,7 @@ async function openRecording(name, options = {}) {
     el.video.hidden = !hasVideo;
     el.artwork.hidden = !hasVideo;
     el["player-body"].classList.toggle("video-mode", hasVideo);
-    el["player-subtitle"].textContent = `${displayName(name)} · ${formatTime(info.duration)}`;
+    el["player-subtitle"].textContent = `${recordingParts(name).channel} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);
     el.seek.max = String(Math.floor(info.duration));
     for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = false;

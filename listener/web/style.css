@@ -151,12 +151,16 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   color: #e4eaf0; font-size: 13px; font-weight: 700;
 }
 .row-meta { gap: 8px; color: #8597a5; font-size: 11px; white-space: nowrap; }
-.row-meta span + span::before { content: "·"; margin-right: 8px; color: #526471; }
+.row-date {
+  flex: 0 0 112px; color: #b6c5cf; font-size: 12px;
+  font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap;
+}
 .unwatched-dot {
   flex: 0 0 8px; width: 8px; height: 8px; margin: 0 10px 0 4px;
   border-radius: 50%; background: #86e7ca;
   box-shadow: 0 0 0 3px #86e7ca24;
 }
+.unwatched-dot.is-invisible { visibility: hidden; }
 .row-delete {
   flex: 0 0 32px; width: 32px; height: 32px;
   display: grid; place-items: center;
@@ -261,4 +265,7 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   .bulk-bar { padding: 10px 0; }
   .select-visible { width: 100%; }
   .row-meta { font-size: 10px; }
+  .recording-row { gap: 8px; }
+  .row-play { display: none; }
+  .row-date { flex-basis: 86px; font-size: 10px; }
 }
