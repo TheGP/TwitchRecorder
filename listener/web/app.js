@@ -71,10 +71,10 @@ function renderList() {
   el["list-empty"].hidden = files.length !== 0;
   for (const file of files) {
     const row = document.createElement("div");
-    row.className = "recording-row" + (view.current === file.name ? " active" : "");
+    row.className = "recording-row" + (view.current === file.name ? " active" : "") + (file.watched ? " watched" : "");
     row.setAttribute("role", "button");
     row.setAttribute("tabindex", "0");
-    row.setAttribute("aria-label", `Play ${file.name}`);
+    row.setAttribute("aria-label", `Play ${file.name}, ${file.watched ? "watched" : "unwatched"}`);
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.className = "row-check";
@@ -104,10 +104,14 @@ function renderList() {
       meta.append(span);
     }
     main.append(title, meta);
-    const badge = document.createElement("span");
-    badge.className = "watch-badge" + (file.watched ? " watched" : "");
-    badge.textContent = file.watched ? "WATCHED" : "NEW";
-    row.append(checkbox, icon, main, badge);
+    row.append(checkbox, icon, main);
+    if (!file.watched) {
+      const dot = document.createElement("span");
+      dot.className = "unwatched-dot";
+      dot.title = "Unwatched";
+      dot.setAttribute("aria-hidden", "true");
+      row.append(dot);
+    }
     row.addEventListener("click", () => openRecording(file.name));
     row.addEventListener("keydown", (event) => {
       if (event.target === row && (event.key === "Enter" || event.key === " ")) {
