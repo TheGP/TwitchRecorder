@@ -100,7 +100,7 @@ function renderList() {
   el["list-empty"].hidden = files.length !== 0;
   for (const file of files) {
     const { channel, date } = recordingParts(file.name);
-    const isPlaying = view.current === file.name && view.media && !view.media.paused;
+    const isPlaying = view.current === file.name && view.media && !view.media.paused && !view.media.ended;
     const row = document.createElement("div");
     row.className = "recording-row" + (view.current === file.name ? " active" : "") + (file.watched ? " watched" : "");
     row.setAttribute("role", "button");
@@ -396,17 +396,24 @@ for (const media of [el.video, el.audio]) {
       renderList();
     }
   });
-  media.addEventListener("ended", () => {
-    if (media === view.media) {
+  media.addEventListener("ended", async () => {
+    if (media === view.media && media.ended) {
+      const name = view.current;
+      const reachedEnd = view.start + media.currentTime >= view.info.duration - 10;
+      const visible = visibleRecordings();
+      const index = visible.findIndex((item) => item.name === name);
+      const nextName = index >= 0 ? visible[index + 1]?.name : null;
       view.playing = false;
       saveLocalState(true, 0);
       updateTimeline();
-      const file = view.recordings.find((item) => item.name === view.current);
-      if (file && !file.watched && view.start + media.currentTime >= view.info.duration - 10) {
-        setWatched([file.name], true);
+      renderList();
+      const file = view.recordings.find((item) => item.name === name);
+      if (file && !file.watched && reachedEnd) {
+        await setWatched([name], true);
       } else {
         saveProgress(true);
       }
+      if (reachedEnd && nextName && view.current === name && !view.playing) await openRecording(nextName);
     }
   });
   media.addEventListener("error", () => {
