@@ -159,19 +159,23 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .empty-list { color: #8ea0ae; padding: 28px 12px; text-align: center; }
 
 .player-panel {
-  width: 100%; padding: 22px 30px 18px;
+  width: 100%; padding: 17px 24px 15px;
   border: 1px solid #293944; border-radius: 18px;
   background: linear-gradient(165deg, #182630 0%, #111b25 58%, #101820 100%);
   box-shadow: 0 26px 70px #03070b54;
 }
-.player-heading { justify-content: space-between; margin-bottom: 10px; }
-.player-body { max-width: 880px; margin: 0 auto; }
+.player-heading { justify-content: space-between; margin-bottom: 6px; }
+.player-body { max-width: 1000px; margin: 0 auto; }
 .player-body.video-mode {
   max-width: none;
   display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(310px, .85fr);
-  align-items: center; gap: 32px;
+  align-items: center; gap: 24px;
 }
 .player-details { min-width: 0; }
+.player-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.player-panel.is-empty .timeline,
+.player-panel.is-empty .player-control-row,
+.player-panel.is-empty .watched-toggle { display: none; }
 .kind-badge {
   padding: 5px 8px; border: 1px solid #33514d; border-radius: 6px;
   color: #9ddfce; font-size: 10px; font-weight: 750; letter-spacing: .08em;
@@ -188,39 +192,44 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   object-fit: contain; background: #05090b;
 }
 .player-panel h2 {
-  margin: 8px 0 4px; font-size: 23px; line-height: 1.25;
+  margin: 0; font-size: 21px; line-height: 1.25;
   overflow-wrap: anywhere;
 }
 .player-subtitle {
-  min-height: 18px; margin-bottom: 22px;
+  margin: 2px 0 10px;
   color: #8fa1ad; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere;
 }
+.player-panel.is-empty .player-subtitle { margin-bottom: 0; }
 .timeline input { width: 100%; accent-color: #8de8ca; cursor: pointer; }
 .timeline input:disabled { cursor: default; }
 .time-labels { justify-content: space-between; margin-top: 1px; color: #91a3ac; font-size: 11px; font-variant-numeric: tabular-nums; }
-.transport { justify-content: center; gap: 38px; margin: 14px 0 22px; }
+.player-control-row { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-top: 7px; }
+.transport { justify-content: center; gap: 23px; margin: 0; }
+.player-body.video-mode .player-control-row { flex-wrap: wrap; justify-content: center; gap: 10px; }
+.player-body.video-mode .transport { width: 100%; }
+.player-body.video-mode .player-options { width: 100%; justify-content: space-between; }
 .transport-side {
-  border: 0; background: none; color: #cbd9df; font-size: 24px;
+  border: 0; background: none; color: #cbd9df; font-size: 22px; white-space: nowrap;
 }
 .transport-side small { font-size: 10px; vertical-align: middle; }
 .play-button {
-  width: 55px; height: 55px; border: 0; border-radius: 50%;
-  background: #8ae8c9; color: #10352b; font-size: 23px;
+  width: 44px; height: 44px; border: 0; border-radius: 50%;
+  background: #8ae8c9; color: #10352b; font-size: 19px;
   box-shadow: 0 9px 25px #62edbb2e;
 }
 .play-button:hover:not(:disabled) { background: #a6f5d9; }
-.player-options { justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid #2a3a44; padding-top: 19px; }
+.player-options { justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
 .player-options label { color: #9eafb8; font-size: 11px; white-space: nowrap; }
 .player-options input { width: 85px; margin-left: 5px; accent-color: #8ce5cb; vertical-align: middle; }
 .player-options select { padding: 6px; font-size: 11px; margin-left: 4px; }
 .watched-toggle {
-  width: 100%; margin-top: 20px; padding: 10px;
+  flex: 0 0 auto; padding: 7px 11px;
   border-radius: 9px; border: 1px solid #466456;
-  background: #204036; color: #a9edca; font-size: 12px; font-weight: 700;
+  background: #204036; color: #a9edca; font-size: 11px; font-weight: 700;
 }
 .watched-toggle:hover:not(:disabled) { background: #28513f; }
-.notice { min-height: 18px; margin: 13px 0 0; color: #f2b78d; font-size: 11px; }
-.player-footnote { margin: 13px 0 0; color: #677b87; font-size: 10px; text-align: center; }
+.notice { margin: 0; color: #f2b78d; font-size: 11px; }
+.notice:not(:empty) { margin-top: 8px; }
 
 @media (max-width: 1080px) {
   .main-layout { gap: 22px; }
@@ -234,6 +243,8 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   .main-layout { padding-top: 20px; }
   .player-body.video-mode { display: block; }
   .player-body.video-mode .artwork { margin-bottom: 18px; }
+  .player-control-row { flex-wrap: wrap; justify-content: center; }
+  .player-options { width: 100%; justify-content: space-between; }
   .section-heading h2 { font-size: 27px; }
 }
 @media (max-width: 440px) {

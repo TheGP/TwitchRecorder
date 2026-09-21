@@ -2,7 +2,7 @@ const el = Object.fromEntries([
   "folder", "total-count", "unwatched-count", "watched-count", "refresh",
   "search", "sort", "select-visible", "selection-count", "mark-selected",
   "unmark-selected", "mark-all", "list", "list-empty", "player-kind",
-  "artwork", "player-body", "video", "audio", "player-title", "player-subtitle",
+  "player-panel", "artwork", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "back", "play", "forward", "volume",
   "speed", "fullscreen", "player-watched", "notice"
 ].map((id) => [id, document.getElementById(id)]));
@@ -206,6 +206,8 @@ async function openRecording(name) {
   view.current = name;
   view.info = null;
   view.start = 0;
+  el["player-panel"].classList.remove("is-empty");
+  for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = true;
   notify("Inspecting recording…");
   el["player-title"].textContent = name;
   el["player-subtitle"].textContent = "Loading media details";
@@ -246,7 +248,7 @@ function updateTimeline() {
 
 function updateWatchedButton() {
   const file = view.recordings.find((item) => item.name === view.current);
-  el["player-watched"].textContent = file?.watched ? "Mark as unwatched" : "Mark as watched";
+  el["player-watched"].textContent = file?.watched ? "Mark unwatched" : "Mark watched";
 }
 
 for (const media of [el.video, el.audio]) {

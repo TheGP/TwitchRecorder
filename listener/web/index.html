@@ -26,7 +26,7 @@
     </header>
 
     <main class="main-layout">
-      <aside class="player-panel" aria-labelledby="player-title">
+      <aside id="player-panel" class="player-panel is-empty" aria-labelledby="player-title">
         <div class="player-heading">
           <div class="eyebrow">NOW PLAYING</div>
           <span id="player-kind" class="kind-badge">READY</span>
@@ -37,33 +37,36 @@
           </div>
           <div class="player-details">
             <audio id="audio" preload="none" hidden></audio>
-            <h2 id="player-title">Pick a recording</h2>
+            <div class="player-title-row">
+              <h2 id="player-title">Pick a recording</h2>
+              <button id="player-watched" class="watched-toggle" disabled>Mark watched</button>
+            </div>
             <p id="player-subtitle" class="player-subtitle">Select a file below to start listening or watching.</p>
             <div class="timeline">
               <input id="seek" type="range" min="0" max="100" value="0" step="1" disabled aria-label="Playback position">
               <div class="time-labels"><span id="elapsed">0:00</span><span id="duration">0:00</span></div>
             </div>
-            <div class="transport">
-              <button id="back" class="transport-side" title="Back 15 seconds" aria-label="Back 15 seconds" disabled>↶ <small>15</small></button>
-              <button id="play" class="play-button" aria-label="Play" disabled>▶</button>
-              <button id="forward" class="transport-side" title="Forward 15 seconds" aria-label="Forward 15 seconds" disabled>↷ <small>15</small></button>
+            <div class="player-control-row">
+              <div class="transport">
+                <button id="back" class="transport-side" title="Back 15 seconds" aria-label="Back 15 seconds" disabled>↶ <small>15</small></button>
+                <button id="play" class="play-button" aria-label="Play" disabled>▶</button>
+                <button id="forward" class="transport-side" title="Forward 15 seconds" aria-label="Forward 15 seconds" disabled>↷ <small>15</small></button>
+              </div>
+              <div class="player-options">
+                <label>Volume <input id="volume" type="range" min="0" max="1" value="1" step="0.05" aria-label="Volume"></label>
+                <label>Speed <select id="speed" aria-label="Playback speed">
+                  <option value="0.75">0.75×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="2">2×</option>
+                </select></label>
+                <button id="fullscreen" class="text-button" hidden>Fullscreen</button>
+              </div>
             </div>
-            <div class="player-options">
-              <label>Volume <input id="volume" type="range" min="0" max="1" value="1" step="0.05" aria-label="Volume"></label>
-              <label>Speed <select id="speed" aria-label="Playback speed">
-                <option value="0.75">0.75×</option>
-                <option value="1" selected>1×</option>
-                <option value="1.25">1.25×</option>
-                <option value="1.5">1.5×</option>
-                <option value="2">2×</option>
-              </select></label>
-              <button id="fullscreen" class="text-button" hidden>Fullscreen</button>
-            </div>
-            <button id="player-watched" class="watched-toggle" disabled>Mark as watched</button>
             <p id="notice" class="notice" role="status"></p>
           </div>
         </div>
-        <p class="player-footnote">Completed .ts files only · Watched status stays on this computer</p>
       </aside>
 
       <section class="library" aria-labelledby="library-title">
