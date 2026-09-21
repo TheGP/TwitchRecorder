@@ -30,7 +30,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .recording-row:
   border-bottom: 1px solid #202b36;
 }
 .brand, .header-right, .section-heading, .library-controls,
-.bulk-bar, .recording-row, .row-main, .row-meta, .transport, .player-options,
+.bulk-bar, .recording-row, .row-main, .row-meta, .player-options,
 .time-labels { display: flex; align-items: center; }
 .brand { gap: 17px; }
 .brand-mark {
@@ -213,22 +213,20 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .timeline input { width: 100%; accent-color: #8de8ca; cursor: pointer; }
 .timeline input:disabled { cursor: default; }
 .time-labels { justify-content: space-between; margin-top: 1px; color: #91a3ac; font-size: 11px; font-variant-numeric: tabular-nums; }
-.player-control-row { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-top: 7px; }
-.transport { justify-content: center; gap: 23px; margin: 0; }
-.transport-side {
-  border: 0; background: none; color: #cbd9df; font-size: 22px; white-space: nowrap;
+.player-control-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center; gap: 24px; margin-top: 7px;
 }
-.transport-side small { font-size: 10px; vertical-align: middle; }
 .play-button {
+  grid-column: 2; justify-self: center;
   width: 44px; height: 44px; border: 0; border-radius: 50%;
   background: #8ae8c9; color: #10352b; font-size: 19px;
   box-shadow: 0 9px 25px #62edbb2e;
 }
 .play-button:hover:not(:disabled) { background: #a6f5d9; }
-.player-options { justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
+.player-options { grid-column: 3; justify-self: end; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
 .player-options label { color: #9eafb8; font-size: 11px; white-space: nowrap; }
 .player-options input { width: 85px; margin-left: 5px; accent-color: #8ce5cb; vertical-align: middle; }
-.player-options select { padding: 6px; font-size: 11px; margin-left: 4px; }
 .fullscreen-button {
   display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
   border: 1px solid #2b3a46; border-radius: 8px;
@@ -255,8 +253,8 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   .app-header { align-items: flex-start; flex-direction: column; gap: 12px; padding: 22px 0; }
   .header-right { width: 100%; justify-content: space-between; }
   .main-layout { padding-top: 20px; }
-  .player-control-row { flex-wrap: wrap; justify-content: center; }
-  .player-options { width: 100%; justify-content: space-between; }
+  .player-control-row { grid-template-columns: 1fr; gap: 10px; }
+  .play-button, .player-options { grid-column: 1; }
   .section-heading h2 { font-size: 27px; }
 }
 @media (max-width: 440px) {

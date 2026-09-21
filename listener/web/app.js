@@ -3,8 +3,8 @@ const el = Object.fromEntries([
   "search", "sort", "select-visible", "selection-count", "mark-selected",
   "unmark-selected", "mark-all", "list", "list-empty",
   "player-panel", "artwork", "player-body", "video", "audio", "player-title", "player-subtitle",
-  "seek", "elapsed", "duration", "back", "play", "forward", "volume",
-  "speed", "fullscreen", "player-watched", "notice"
+  "seek", "elapsed", "duration", "play", "volume",
+  "fullscreen", "player-watched", "notice"
 ].map((id) => [id, document.getElementById(id)]));
 
 const localStateKey = "twitch-listener-player-v1";
@@ -42,7 +42,7 @@ function saveLocalState(force = false, seconds = view.start + (view.media?.curre
       name: view.current,
       position: Number.isFinite(seconds) ? seconds : 0,
       playing: view.playing,
-      volume: Number(el.volume.value), speed: el.speed.value,
+      volume: Number(el.volume.value),
       search: el.search.value, sort: el.sort.value, filter: view.filter
     }));
   } catch {
@@ -237,7 +237,7 @@ async function deleteRecording(name) {
       el.play.textContent = "▶";
       el.play.setAttribute("aria-label", "Play");
       el.fullscreen.hidden = true;
-      for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = true;
+      for (const id of ["seek", "play", "player-watched"]) el[id].disabled = true;
       saveLocalState(true, 0);
     }
     await refresh();
@@ -290,7 +290,6 @@ async function playAt(start, shouldPlay = true, savePosition = true) {
   view.loading = true;
   media.src = streamURL(view.start);
   media.volume = Number(el.volume.value);
-  media.playbackRate = Number(el.speed.value);
   media.load();
   updateTimeline();
   saveLocalState(true, view.start);
@@ -322,7 +321,7 @@ async function openRecording(name, options = {}) {
   view.playing = options.shouldPlay ?? true;
   view.lastProgressSave = 0;
   el["player-panel"].classList.remove("is-empty");
-  for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = true;
+  for (const id of ["seek", "play", "player-watched"]) el[id].disabled = true;
   notify("Inspecting recording…");
   el["player-title"].textContent = name;
   el["player-subtitle"].textContent = "Loading media details";
@@ -339,7 +338,7 @@ async function openRecording(name, options = {}) {
     el["player-subtitle"].textContent = `${recordingParts(name).channel} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);
     el.seek.max = String(Math.floor(info.duration));
-    for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = false;
+    for (const id of ["seek", "play", "player-watched"]) el[id].disabled = false;
     el.fullscreen.hidden = info.kind !== "video";
     updateWatchedButton();
     notify("");
@@ -479,14 +478,6 @@ el.video.addEventListener("dblclick", () => {
   clearTimeout(videoClickTimer);
   toggleFullscreen();
 });
-el.back.addEventListener("click", () => {
-  const media = view.media;
-  playAt(view.start + media.currentTime - 15, !media.paused);
-});
-el.forward.addEventListener("click", () => {
-  const media = view.media;
-  playAt(view.start + media.currentTime + 15, !media.paused);
-});
 el.seek.addEventListener("input", () => {
   view.seeking = true;
   el.elapsed.textContent = formatTime(Number(el.seek.value));
@@ -498,10 +489,6 @@ el.seek.addEventListener("change", () => {
 });
 el.volume.addEventListener("input", () => {
   for (const media of [el.video, el.audio]) media.volume = Number(el.volume.value);
-  saveLocalState(true);
-});
-el.speed.addEventListener("change", () => {
-  for (const media of [el.video, el.audio]) media.playbackRate = Number(el.speed.value);
   saveLocalState(true);
 });
 el.fullscreen.addEventListener("click", toggleFullscreen);
@@ -522,7 +509,6 @@ async function initialize() {
   const saved = readLocalState();
   if (saved && typeof saved === "object") {
     if (Number.isFinite(saved.volume) && saved.volume >= 0 && saved.volume <= 1) el.volume.value = saved.volume;
-    if ([...el.speed.options].some((option) => option.value === saved.speed)) el.speed.value = saved.speed;
     if (typeof saved.search === "string") el.search.value = saved.search;
     if ([...el.sort.options].some((option) => option.value === saved.sort)) el.sort.value = saved.sort;
     if (["all", "watched", "unwatched"].includes(saved.filter)) {
