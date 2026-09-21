@@ -2,7 +2,7 @@ const el = Object.fromEntries([
   "folder", "total-count", "unwatched-count", "watched-count", "refresh",
   "search", "sort", "select-visible", "selection-count", "mark-selected",
   "unmark-selected", "mark-all", "list", "list-empty", "player-kind",
-  "artwork-icon", "video", "audio", "player-title", "player-subtitle",
+  "artwork", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "back", "play", "forward", "volume",
   "speed", "fullscreen", "player-watched", "notice"
 ].map((id) => [id, document.getElementById(id)]));
@@ -169,7 +169,8 @@ function stopMedia() {
     media.hidden = true;
   }
   view.media = null;
-  el["artwork-icon"].hidden = false;
+  el.artwork.hidden = true;
+  el["player-body"].classList.remove("video-mode");
 }
 
 function streamURL(start) {
@@ -214,9 +215,11 @@ async function openRecording(name) {
     const info = await api(`/api/recordings/${encodeURIComponent(name)}/info`);
     if (view.current !== name) return;
     view.info = info;
-    view.media = info.kind === "video" ? el.video : el.audio;
-    view.media.hidden = info.kind !== "video";
-    el["artwork-icon"].hidden = info.kind === "video";
+    const hasVideo = info.kind === "video";
+    view.media = hasVideo ? el.video : el.audio;
+    el.video.hidden = !hasVideo;
+    el.artwork.hidden = !hasVideo;
+    el["player-body"].classList.toggle("video-mode", hasVideo);
     el["player-kind"].textContent = info.kind.toUpperCase();
     el["player-subtitle"].textContent = `${displayName(name)} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);

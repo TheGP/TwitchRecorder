@@ -294,8 +294,10 @@ func (a *app) probe(ctx context.Context, name, path string, file os.FileInfo) (m
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(probeCtx, a.ffprobe, "-v", "error", "-show_entries",
-		"format=duration:stream=codec_type", "-of", "json", path).Output()
+	command := exec.CommandContext(probeCtx, a.ffprobe, "-v", "error", "-show_entries",
+		"format=duration:stream=codec_type", "-of", "json", path)
+	hideCommandWindow(command)
+	output, err := command.Output()
 	if err != nil {
 		return mediaInfo{}, err
 	}
@@ -373,6 +375,7 @@ func (a *app) streamHandler(w http.ResponseWriter, r *http.Request) {
 		"-movflags", "+frag_keyframe+empty_moov+default_base_moof",
 		"-frag_duration", "2000000", "-f", "mp4", "pipe:1")
 	command := exec.CommandContext(r.Context(), a.ffmpeg, args...)
+	hideCommandWindow(command)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	if info.Kind == "audio" {
