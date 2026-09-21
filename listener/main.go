@@ -165,6 +165,7 @@ func (a *app) routes() (http.Handler, error) {
 	mux.HandleFunc("PATCH /api/progress", a.progressHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/info", a.infoHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/stream", a.streamHandler)
+	mux.HandleFunc("DELETE /api/recordings/{name}", a.deleteHandler)
 	return mux, nil
 }
 
@@ -230,6 +231,27 @@ func (a *app) listHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"folder": a.dir, "recordings": files})
+}
+
+func (a *app) deleteHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	path, _, err := a.file(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		log.Printf("Delete failed for %s: %v", name, err)
+		http.Error(w, "cannot delete recording", http.StatusInternalServerError)
+		return
+	}
+	a.metaMu.Lock()
+	delete(a.meta, name)
+	a.metaMu.Unlock()
+	if err := a.store.remove(name); err != nil {
+		log.Printf("Deleted %s but could not clear its saved status: %v", name, err)
+	}
+	writeJSON(w, map[string]bool{"deleted": true})
 }
 
 func (a *app) watchedHandler(w http.ResponseWriter, r *http.Request) {
@@ -489,6 +511,27 @@ func (s *watchedStore) setProgress(name string, seconds float64) error {
 		progress[name] = seconds
 	}
 	return s.save(watchedFile{Watched: s.data.Watched, Progress: progress})
+}
+
+func (s *watchedStore) remove(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.data.Watched[name] && s.data.Progress[name] == 0 {
+		return nil
+	}
+	checked := make(map[string]bool, len(s.data.Watched))
+	for key, value := range s.data.Watched {
+		if key != name {
+			checked[key] = value
+		}
+	}
+	progress := make(map[string]float64, len(s.data.Progress))
+	for key, value := range s.data.Progress {
+		if key != name {
+			progress[key] = value
+		}
+	}
+	return s.save(watchedFile{Watched: checked, Progress: progress})
 }
 
 // save is called with the store mutex held.

@@ -157,6 +157,16 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   border-radius: 50%; background: #86e7ca;
   box-shadow: 0 0 0 3px #86e7ca24;
 }
+.row-delete {
+  flex: 0 0 32px; width: 32px; height: 32px;
+  display: grid; place-items: center;
+  padding: 6px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: #81939e;
+}
+.row-delete:hover, .row-delete:focus-visible {
+  border-color: #7c4547; background: #412629; color: #ffb5b3;
+}
+.row-delete svg { width: 17px; height: 17px; }
 .empty-list { color: #8ea0ae; padding: 28px 12px; text-align: center; }
 
 .player-panel {

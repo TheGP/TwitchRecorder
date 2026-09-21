@@ -138,6 +138,22 @@ function renderList() {
       dot.setAttribute("aria-hidden", "true");
       row.append(dot);
     }
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "row-delete";
+    deleteButton.title = `Delete ${file.name}`;
+    deleteButton.setAttribute("aria-label", `Delete ${file.name}`);
+    deleteButton.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
+    deleteButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      deleteButton.disabled = true;
+      try {
+        await deleteRecording(file.name);
+      } finally {
+        deleteButton.disabled = false;
+      }
+    });
+    row.append(deleteButton);
     row.addEventListener("click", () => openRecording(file.name));
     row.addEventListener("keydown", (event) => {
       if (event.target === row && (event.key === "Enter" || event.key === " ")) {
@@ -189,6 +205,44 @@ async function setWatched(names, watched, all = false) {
     await refresh();
   } catch (error) {
     notify(`Could not save watched status: ${error.message}`);
+  }
+}
+
+async function deleteRecording(name) {
+  if (!window.confirm(`Permanently delete ${name} from ${el.folder.textContent}?`)) return;
+  const wasCurrent = view.current === name;
+  const position = view.start + (view.media?.currentTime || 0);
+  if (wasCurrent) {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    view.current = null;
+    view.info = null;
+    view.playing = false;
+    stopMedia();
+  }
+  try {
+    await api(`/api/recordings/${encodeURIComponent(name)}`, { method: "DELETE" });
+    view.selected.delete(name);
+    if (wasCurrent) {
+      view.start = 0;
+      view.loading = false;
+      view.seeking = false;
+      el["player-panel"].classList.add("is-empty");
+      el["player-title"].textContent = "Pick a recording";
+      el["player-subtitle"].textContent = "Select a file below to start listening or watching.";
+      el.seek.value = "0";
+      el.elapsed.textContent = "0:00";
+      el.duration.textContent = "0:00";
+      el.play.textContent = "▶";
+      el.play.setAttribute("aria-label", "Play");
+      el.fullscreen.hidden = true;
+      for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = true;
+      saveLocalState(true, 0);
+    }
+    await refresh();
+    notify(`Deleted ${name}`);
+  } catch (error) {
+    if (wasCurrent) await openRecording(name, { start: position, shouldPlay: false });
+    notify(`Could not delete ${name}: ${error.message}`);
   }
 }
 
