@@ -150,7 +150,11 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: #e4eaf0; font-size: 13px; font-weight: 700;
 }
-.row-meta { gap: 8px; color: #8597a5; font-size: 11px; white-space: nowrap; }
+.row-meta {
+  display: block;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  color: #8597a5; font-size: 11px; white-space: nowrap;
+}
 .row-date {
   flex: 0 0 112px; color: #b6c5cf; font-size: 12px;
   font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap;

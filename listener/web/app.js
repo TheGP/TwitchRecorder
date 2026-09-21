@@ -67,8 +67,8 @@ function formatSize(bytes) {
 function recordingParts(name) {
   const match = name.match(/^(.*)-(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})(?:-(\d+))?\.ts$/i);
   return match
-    ? { channel: match[1], date: match[2], number: match[3] }
-    : { channel: name.replace(/\.ts$/i, ""), date: "", number: "" };
+    ? { channel: match[1], date: match[2] }
+    : { channel: name.replace(/\.ts$/i, ""), date: "" };
 }
 
 function visibleRecordings() {
@@ -99,12 +99,13 @@ function renderList() {
   el.list.replaceChildren();
   el["list-empty"].hidden = files.length !== 0;
   for (const file of files) {
-    const { channel, date, number } = recordingParts(file.name);
+    const { channel, date } = recordingParts(file.name);
+    const isPlaying = view.current === file.name && view.media && !view.media.paused;
     const row = document.createElement("div");
     row.className = "recording-row" + (view.current === file.name ? " active" : "") + (file.watched ? " watched" : "");
     row.setAttribute("role", "button");
     row.setAttribute("tabindex", "0");
-    row.setAttribute("aria-label", `Play ${file.name}, ${file.watched ? "watched" : "unwatched"}`);
+    row.setAttribute("aria-label", `${isPlaying ? "Pause" : "Play"} ${file.name}, ${file.watched ? "watched" : "unwatched"}`);
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.className = "row-check";
@@ -118,17 +119,18 @@ function renderList() {
     });
     const icon = document.createElement("div");
     icon.className = "row-play";
-    icon.textContent = "▶";
+    icon.textContent = isPlaying ? "Ⅱ" : "▶";
     icon.setAttribute("aria-hidden", "true");
     const main = document.createElement("div");
     main.className = "row-main";
     const title = document.createElement("div");
     title.className = "row-title";
-    title.textContent = number ? `${channel} #${number}` : channel;
+    title.textContent = channel;
     title.title = file.name;
     const meta = document.createElement("div");
     meta.className = "row-meta";
-    meta.textContent = formatSize(file.size);
+    meta.textContent = `${file.name} · ${formatSize(file.size)}`;
+    meta.title = file.name;
     main.append(title, meta);
     const recordingDate = document.createElement("span");
     recordingDate.className = "row-date";
@@ -309,7 +311,7 @@ async function playAt(start, shouldPlay = true, savePosition = true) {
 
 async function openRecording(name, options = {}) {
   if (view.current === name) {
-    if (view.media?.paused) view.media.play().catch((error) => notify(error.message));
+    togglePlayback();
     return;
   }
   saveProgress(true);
@@ -379,6 +381,7 @@ for (const media of [el.video, el.audio]) {
       el.play.textContent = "Ⅱ";
       el.play.setAttribute("aria-label", "Pause");
       saveLocalState(true);
+      renderList();
       notify("");
     }
   });
@@ -391,6 +394,7 @@ for (const media of [el.video, el.audio]) {
         saveProgress(true);
         saveLocalState(true);
       }
+      renderList();
     }
   });
   media.addEventListener("ended", () => {
