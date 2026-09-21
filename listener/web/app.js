@@ -7,10 +7,11 @@ const el = Object.fromEntries([
   "speed", "fullscreen", "player-watched", "notice"
 ].map((id) => [id, document.getElementById(id)]));
 
+const localStateKey = "twitch-listener-player-v1";
 const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
-  lastProgressSave: 0
+  playing: false, leaving: false, lastProgressSave: 0, lastLocalSave: 0
 };
 
 async function api(path, options = {}) {
@@ -23,6 +24,30 @@ async function api(path, options = {}) {
 }
 
 function notify(message) { el.notice.textContent = message || ""; }
+
+function readLocalState() {
+  try {
+    return JSON.parse(localStorage.getItem(localStateKey));
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalState(force = false, seconds = view.start + (view.media?.currentTime || 0)) {
+  if (!force && Date.now() - view.lastLocalSave < 1000) return;
+  view.lastLocalSave = Date.now();
+  try {
+    localStorage.setItem(localStateKey, JSON.stringify({
+      name: view.current,
+      position: Number.isFinite(seconds) ? seconds : 0,
+      playing: view.playing,
+      volume: Number(el.volume.value), speed: el.speed.value,
+      search: el.search.value, sort: el.sort.value, filter: view.filter
+    }));
+  } catch {
+    // Playback still works when browser storage is unavailable.
+  }
+}
 
 function formatTime(value) {
   if (!Number.isFinite(value) || value < 0) return "0:00";
@@ -203,24 +228,30 @@ async function playAt(start, shouldPlay = true, savePosition = true) {
   if (!view.current || !view.info) return;
   const media = view.media;
   view.start = Math.max(0, Math.min(start, Math.max(0, view.info.duration - 0.5)));
+  view.playing = shouldPlay;
   view.loading = true;
   media.src = streamURL(view.start);
   media.volume = Number(el.volume.value);
   media.playbackRate = Number(el.speed.value);
   media.load();
   updateTimeline();
+  saveLocalState(true, view.start);
   if (savePosition) saveProgress(true, view.start);
   if (shouldPlay) {
     try {
       await media.play();
     } catch (error) {
-      if (error.name !== "AbortError") notify(`Playback could not start: ${error.message}`);
+      if (error.name !== "AbortError") {
+        view.playing = false;
+        saveLocalState(true);
+        notify(error.name === "NotAllowedError" ? "Press play to resume." : `Playback could not start: ${error.message}`);
+      }
     }
   }
   view.loading = false;
 }
 
-async function openRecording(name) {
+async function openRecording(name, options = {}) {
   if (view.current === name) {
     if (view.media?.paused) view.media.play().catch((error) => notify(error.message));
     return;
@@ -230,6 +261,7 @@ async function openRecording(name) {
   view.current = name;
   view.info = null;
   view.start = 0;
+  view.playing = options.shouldPlay ?? true;
   view.lastProgressSave = 0;
   el["player-panel"].classList.remove("is-empty");
   for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = true;
@@ -254,8 +286,8 @@ async function openRecording(name) {
     updateWatchedButton();
     notify("");
     const file = view.recordings.find((item) => item.name === name);
-    const saved = file?.watched ? 0 : (file?.progress || 0);
-    await playAt(saved > 0 && saved < info.duration - 1 ? saved : 0, true, false);
+    const saved = file?.watched ? 0 : (options.start ?? file?.progress ?? 0);
+    await playAt(saved > 0 && saved < info.duration - 1 ? saved : 0, view.playing, false);
   } catch (error) {
     if (view.current === name) {
       notify(`Cannot open recording: ${error.message}`);
@@ -279,13 +311,18 @@ for (const media of [el.video, el.audio]) {
   media.addEventListener("timeupdate", () => {
     if (media === view.media) {
       updateTimeline();
-      if (!view.loading) saveProgress();
+      if (!view.loading) {
+        saveProgress();
+        saveLocalState();
+      }
     }
   });
   media.addEventListener("playing", () => {
     if (media === view.media) {
+      view.playing = true;
       el.play.textContent = "Ⅱ";
       el.play.setAttribute("aria-label", "Pause");
+      saveLocalState(true);
       notify("");
     }
   });
@@ -293,11 +330,17 @@ for (const media of [el.video, el.audio]) {
     if (media === view.media) {
       el.play.textContent = "▶";
       el.play.setAttribute("aria-label", "Play");
-      if (!view.loading) saveProgress(true);
+      if (!view.loading && !view.leaving && !document.hidden) {
+        view.playing = false;
+        saveProgress(true);
+        saveLocalState(true);
+      }
     }
   });
   media.addEventListener("ended", () => {
     if (media === view.media) {
+      view.playing = false;
+      saveLocalState(true, 0);
       updateTimeline();
       const file = view.recordings.find((item) => item.name === view.current);
       if (file && !file.watched && view.start + media.currentTime >= view.info.duration - 10) {
@@ -315,8 +358,8 @@ for (const media of [el.video, el.audio]) {
 }
 
 el.refresh.addEventListener("click", refresh);
-el.search.addEventListener("input", renderList);
-el.sort.addEventListener("change", renderList);
+el.search.addEventListener("input", () => { renderList(); saveLocalState(true); });
+el.sort.addEventListener("change", () => { renderList(); saveLocalState(true); });
 document.querySelectorAll(".filter").forEach((button) => {
   button.addEventListener("click", () => {
     view.filter = button.dataset.filter;
@@ -325,6 +368,7 @@ document.querySelectorAll(".filter").forEach((button) => {
       other.setAttribute("aria-pressed", other === button ? "true" : "false");
     });
     renderList();
+    saveLocalState(true);
   });
 });
 el["select-visible"].addEventListener("change", (event) => {
@@ -344,7 +388,13 @@ el["player-watched"].addEventListener("click", () => {
 el.play.addEventListener("click", () => {
   const media = view.media;
   if (!media) return;
-  if (media.paused) media.play().catch((error) => notify(error.message));
+  view.playing = media.paused;
+  saveLocalState(true);
+  if (media.paused) media.play().catch((error) => {
+    view.playing = false;
+    saveLocalState(true);
+    notify(error.message);
+  });
   else media.pause();
 });
 el.back.addEventListener("click", () => {
@@ -366,15 +416,47 @@ el.seek.addEventListener("change", () => {
 });
 el.volume.addEventListener("input", () => {
   for (const media of [el.video, el.audio]) media.volume = Number(el.volume.value);
+  saveLocalState(true);
 });
 el.speed.addEventListener("change", () => {
   for (const media of [el.video, el.audio]) media.playbackRate = Number(el.speed.value);
+  saveLocalState(true);
 });
 el.fullscreen.addEventListener("click", () => el.video.requestFullscreen());
-window.addEventListener("pagehide", () => saveProgress(true));
+window.addEventListener("pagehide", () => {
+  view.leaving = true;
+  saveLocalState(true);
+  saveProgress(true);
+});
+window.addEventListener("pageshow", () => { view.leaving = false; });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) saveProgress(true);
+  if (document.hidden) {
+    saveLocalState(true);
+    saveProgress(true);
+  }
 });
 
-refresh();
+async function initialize() {
+  const saved = readLocalState();
+  if (saved && typeof saved === "object") {
+    if (Number.isFinite(saved.volume) && saved.volume >= 0 && saved.volume <= 1) el.volume.value = saved.volume;
+    if ([...el.speed.options].some((option) => option.value === saved.speed)) el.speed.value = saved.speed;
+    if (typeof saved.search === "string") el.search.value = saved.search;
+    if ([...el.sort.options].some((option) => option.value === saved.sort)) el.sort.value = saved.sort;
+    if (["all", "watched", "unwatched"].includes(saved.filter)) {
+      view.filter = saved.filter;
+      document.querySelectorAll(".filter").forEach((button) => {
+        button.classList.toggle("active", button.dataset.filter === view.filter);
+        button.setAttribute("aria-pressed", String(button.dataset.filter === view.filter));
+      });
+    }
+  }
+  await refresh();
+  if (saved && typeof saved.name === "string" && view.recordings.some((file) => file.name === saved.name)) {
+    const position = Number.isFinite(saved.position) && saved.position >= 0 ? saved.position : undefined;
+    await openRecording(saved.name, { start: position, shouldPlay: saved.playing === true });
+  }
+}
+
+initialize();
 setInterval(refresh, 60_000);
