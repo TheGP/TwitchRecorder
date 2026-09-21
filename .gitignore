@@ -1,5 +1,6 @@
 .env*
 !.env.example
+/transfer-config.json
 recordings/
 node_modules/
 /*.ts

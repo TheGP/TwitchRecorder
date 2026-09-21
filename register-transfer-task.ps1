@@ -28,5 +28,5 @@ if ($LogonType -eq 'S4U') {
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 4) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10)
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType $LogonType -RunLevel Limited
 
-Register-ScheduledTask -TaskName $taskName -Description 'Move completed Twitch recordings to F:\DJ every two hours' -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force | Out-Null
+Register-ScheduledTask -TaskName $taskName -Description 'Move completed Twitch recordings to the configured Windows folder every two hours' -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force | Out-Null
 Get-ScheduledTask -TaskName $taskName | Select-Object TaskName, State

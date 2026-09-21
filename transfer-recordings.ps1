@@ -1,7 +1,7 @@
 param(
     [string]$Remote = 'root@reviewer',
     [string]$RemoteDir = '/root/TwitchRecorder/recordings',
-    [string]$Destination = 'F:\DJ',
+    [string]$Destination,
     [switch]$DryRun
 )
 
@@ -32,6 +32,17 @@ function Get-RemoteHash([string]$Name) {
 }
 
 try {
+    if ([string]::IsNullOrWhiteSpace($Destination)) {
+        $configPath = Join-Path $PSScriptRoot 'transfer-config.json'
+        if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+            throw "Transfer config is missing: $configPath. Copy transfer-config.example.json to transfer-config.json and set destination."
+        }
+        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        if ($config.destination -isnot [string] -or [string]::IsNullOrWhiteSpace($config.destination)) {
+            throw "Transfer config must contain a nonempty destination: $configPath"
+        }
+        $Destination = $config.destination
+    }
     if ($Remote -notmatch '^[a-zA-Z0-9_.@-]+$' -or
         $RemoteDir -notmatch '^/[a-zA-Z0-9_./-]+$' -or
         $RemoteDir.Contains('..')) {
