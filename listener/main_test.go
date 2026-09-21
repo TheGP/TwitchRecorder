@@ -76,3 +76,60 @@ func TestWatchedStatusPersistsAndBulkUpdate(t *testing.T) {
 		t.Fatalf("expected only completed .ts files, got %d", len(result.Recordings))
 	}
 }
+
+func TestProgressPersistsUntilWatched(t *testing.T) {
+	dir := t.TempDir()
+	name := "alpha-2026-09-21.ts"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("sample"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	storePath := filepath.Join(t.TempDir(), "state.json")
+	store, err := loadWatched(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverApp := &app{dir: dir, store: store}
+	mux, err := serverApp.routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPatch, "/api/progress", strings.NewReader(`{"name":"alpha-2026-09-21.ts","seconds":65.5}`))
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("save progress: %d %s", response.Code, response.Body.String())
+	}
+	reloaded, err := loadWatched(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, progress := reloaded.status(name); progress != 65.5 {
+		t.Fatalf("progress after reload = %v, want 65.5", progress)
+	}
+	serverApp.store = reloaded
+	request = httptest.NewRequest(http.MethodGet, "/api/recordings", nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var listed struct {
+		Recordings []recording `json:"recordings"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Recordings) != 1 || listed.Recordings[0].Progress != 65.5 {
+		t.Fatalf("listing omitted progress: %+v", listed.Recordings)
+	}
+	request = httptest.NewRequest(http.MethodPatch, "/api/watched", strings.NewReader(`{"names":["alpha-2026-09-21.ts"],"watched":true}`))
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("mark watched: %d %s", response.Code, response.Body.String())
+	}
+	reloaded, err = loadWatched(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if watched, progress := reloaded.status(name); !watched || progress != 0 {
+		t.Fatalf("watched recording kept progress: watched=%v progress=%v", watched, progress)
+	}
+}

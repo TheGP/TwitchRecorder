@@ -9,7 +9,8 @@ const el = Object.fromEntries([
 
 const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
-  info: null, media: null, start: 0, seeking: false, loading: false
+  info: null, media: null, start: 0, seeking: false, loading: false,
+  lastProgressSave: 0
 };
 
 async function api(path, options = {}) {
@@ -177,7 +178,24 @@ function streamURL(start) {
   return `/api/recordings/${encodeURIComponent(view.current)}/stream?start=${start.toFixed(3)}`;
 }
 
-async function playAt(start, shouldPlay = true) {
+function saveProgress(force = false, seconds = view.start + (view.media?.currentTime || 0)) {
+  if (!view.current || !view.info || !view.media) return;
+  const file = view.recordings.find((item) => item.name === view.current);
+  if (!file || file.watched || !Number.isFinite(seconds)) return;
+  const position = Math.max(0, Math.min(seconds, view.info.duration));
+  if (!force && (position < 1 || Date.now() - view.lastProgressSave < 10_000)) return;
+  if (Math.abs((file.progress || 0) - position) < 0.5) return;
+  file.progress = position;
+  view.lastProgressSave = Date.now();
+  api("/api/progress", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: file.name, seconds: position }),
+    keepalive: true
+  }).catch((error) => notify(`Could not save progress: ${error.message}`));
+}
+
+async function playAt(start, shouldPlay = true, savePosition = true) {
   if (!view.current || !view.info) return;
   const media = view.media;
   view.start = Math.max(0, Math.min(start, Math.max(0, view.info.duration - 0.5)));
@@ -187,6 +205,7 @@ async function playAt(start, shouldPlay = true) {
   media.playbackRate = Number(el.speed.value);
   media.load();
   updateTimeline();
+  if (savePosition) saveProgress(true, view.start);
   if (shouldPlay) {
     try {
       await media.play();
@@ -202,10 +221,12 @@ async function openRecording(name) {
     if (view.media?.paused) view.media.play().catch((error) => notify(error.message));
     return;
   }
+  saveProgress(true);
   stopMedia();
   view.current = name;
   view.info = null;
   view.start = 0;
+  view.lastProgressSave = 0;
   el["player-panel"].classList.remove("is-empty");
   for (const id of ["seek", "back", "play", "forward", "player-watched"]) el[id].disabled = true;
   notify("Inspecting recording…");
@@ -228,7 +249,9 @@ async function openRecording(name) {
     el.fullscreen.hidden = info.kind !== "video";
     updateWatchedButton();
     notify("");
-    await playAt(0);
+    const file = view.recordings.find((item) => item.name === name);
+    const saved = file?.watched ? 0 : (file?.progress || 0);
+    await playAt(saved > 0 && saved < info.duration - 1 ? saved : 0, true, false);
   } catch (error) {
     if (view.current === name) {
       notify(`Cannot open recording: ${error.message}`);
@@ -249,7 +272,12 @@ function updateWatchedButton() {
 }
 
 for (const media of [el.video, el.audio]) {
-  media.addEventListener("timeupdate", () => { if (media === view.media) updateTimeline(); });
+  media.addEventListener("timeupdate", () => {
+    if (media === view.media) {
+      updateTimeline();
+      if (!view.loading) saveProgress();
+    }
+  });
   media.addEventListener("playing", () => {
     if (media === view.media) {
       el.play.textContent = "Ⅱ";
@@ -261,6 +289,7 @@ for (const media of [el.video, el.audio]) {
     if (media === view.media) {
       el.play.textContent = "▶";
       el.play.setAttribute("aria-label", "Play");
+      if (!view.loading) saveProgress(true);
     }
   });
   media.addEventListener("ended", () => {
@@ -269,6 +298,8 @@ for (const media of [el.video, el.audio]) {
       const file = view.recordings.find((item) => item.name === view.current);
       if (file && !file.watched && view.start + media.currentTime >= view.info.duration - 10) {
         setWatched([file.name], true);
+      } else {
+        saveProgress(true);
       }
     }
   });
@@ -336,6 +367,10 @@ el.speed.addEventListener("change", () => {
   for (const media of [el.video, el.audio]) media.playbackRate = Number(el.speed.value);
 });
 el.fullscreen.addEventListener("click", () => el.video.requestFullscreen());
+window.addEventListener("pagehide", () => saveProgress(true));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) saveProgress(true);
+});
 
 refresh();
 setInterval(refresh, 60_000);

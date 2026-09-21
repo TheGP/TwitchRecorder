@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -35,6 +36,7 @@ type recording struct {
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
 	Watched  bool      `json:"watched"`
+	Progress float64   `json:"progress,omitempty"`
 }
 
 type mediaInfo struct {
@@ -49,7 +51,8 @@ type cachedInfo struct {
 }
 
 type watchedFile struct {
-	Watched map[string]bool `json:"watched"`
+	Watched  map[string]bool    `json:"watched"`
+	Progress map[string]float64 `json:"progress,omitempty"`
 }
 
 type watchedStore struct {
@@ -159,6 +162,7 @@ func (a *app) routes() (http.Handler, error) {
 	})
 	mux.HandleFunc("GET /api/recordings", a.listHandler)
 	mux.HandleFunc("PATCH /api/watched", a.watchedHandler)
+	mux.HandleFunc("PATCH /api/progress", a.progressHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/info", a.infoHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/stream", a.streamHandler)
 	return mux, nil
@@ -179,7 +183,8 @@ func (a *app) files() ([]recording, error) {
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: a.store.isWatched(name)})
+		watched, progress := a.store.status(name)
+		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Progress: progress})
 	}
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].Modified.Equal(files[j].Modified) {
@@ -267,6 +272,28 @@ func (a *app) watchedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]int{"updated": len(names)})
+}
+
+func (a *app) progressHandler(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Name    string  `json:"name"`
+		Seconds float64 `json:"seconds"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil || math.IsNaN(request.Seconds) || math.IsInf(request.Seconds, 0) || request.Seconds < 0 {
+		http.Error(w, "invalid progress", http.StatusBadRequest)
+		return
+	}
+	if _, _, err := a.file(request.Name); err != nil {
+		http.Error(w, "recording not found", http.StatusBadRequest)
+		return
+	}
+	if err := a.store.setProgress(request.Name, request.Seconds); err != nil {
+		http.Error(w, "cannot save progress", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"saved": true})
 }
 
 func (a *app) infoHandler(w http.ResponseWriter, r *http.Request) {
@@ -393,7 +420,7 @@ func (a *app) streamHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loadWatched(path string) (*watchedStore, error) {
-	store := &watchedStore{path: path, data: watchedFile{Watched: make(map[string]bool)}}
+	store := &watchedStore{path: path, data: watchedFile{Watched: make(map[string]bool), Progress: make(map[string]float64)}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return store, nil
@@ -407,13 +434,21 @@ func loadWatched(path string) (*watchedStore, error) {
 	if store.data.Watched == nil {
 		store.data.Watched = make(map[string]bool)
 	}
+	if store.data.Progress == nil {
+		store.data.Progress = make(map[string]float64)
+	}
 	return store, nil
 }
 
 func (s *watchedStore) isWatched(name string) bool {
+	checked, _ := s.status(name)
+	return checked
+}
+
+func (s *watchedStore) status(name string) (bool, float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.data.Watched[name]
+	return s.data.Watched[name], s.data.Progress[name]
 }
 
 func (s *watchedStore) set(names []string, watched bool) error {
@@ -423,13 +458,41 @@ func (s *watchedStore) set(names []string, watched bool) error {
 	for name, value := range s.data.Watched {
 		next[name] = value
 	}
+	progress := make(map[string]float64, len(s.data.Progress))
+	for name, value := range s.data.Progress {
+		progress[name] = value
+	}
 	for _, name := range names {
 		if watched {
 			next[name] = true
+			delete(progress, name)
 		} else {
 			delete(next, name)
 		}
 	}
+	return s.save(watchedFile{Watched: next, Progress: progress})
+}
+
+func (s *watchedStore) setProgress(name string, seconds float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Watched[name] {
+		return nil
+	}
+	progress := make(map[string]float64, len(s.data.Progress))
+	for key, value := range s.data.Progress {
+		progress[key] = value
+	}
+	if seconds == 0 {
+		delete(progress, name)
+	} else {
+		progress[name] = seconds
+	}
+	return s.save(watchedFile{Watched: s.data.Watched, Progress: progress})
+}
+
+// save is called with the store mutex held.
+func (s *watchedStore) save(next watchedFile) error {
 	temp, err := os.CreateTemp(filepath.Dir(s.path), ".state-*.json")
 	if err != nil {
 		return err
@@ -439,7 +502,7 @@ func (s *watchedStore) set(names []string, watched bool) error {
 		temp.Close()
 		return err
 	}
-	if err := json.NewEncoder(temp).Encode(watchedFile{Watched: next}); err != nil {
+	if err := json.NewEncoder(temp).Encode(next); err != nil {
 		temp.Close()
 		return err
 	}
@@ -453,7 +516,7 @@ func (s *watchedStore) set(names []string, watched bool) error {
 	if err := os.Rename(temp.Name(), s.path); err != nil {
 		return err
 	}
-	s.data.Watched = next
+	s.data = next
 	return nil
 }
 

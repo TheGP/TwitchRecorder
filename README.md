@@ -41,7 +41,7 @@ The transfer ignores `.ts.part` files. It downloads each completed `.ts` to a te
 
 ## Listener on Windows
 
-The listener is a small Go web server bound to `127.0.0.1`. It reads completed `.ts` files from the configured folder, plays AAC audio and H.264/AAC video using FFmpeg, and stores watched status in the ignored `listener/state.json`. It does not keep converted copies of the recordings. Playback controls include seeking, speed, volume, and fullscreen for video. A recording is marked watched when playback reaches the end; you can also mark one or selected files watched or unwatched, or mark the whole library watched.
+The listener is a small Go web server bound to `127.0.0.1`. It reads completed `.ts` files from the configured folder, plays AAC audio and H.264/AAC video using FFmpeg, and stores watched status and playback positions in the ignored `listener/state.json`. It does not keep converted copies of the recordings. Playback controls include seeking, speed, volume, and fullscreen for video. Unfinished recordings resume where you left off; positions are saved during playback, on pause, and when the tab closes. A recording is marked watched when playback reaches the end, which clears its saved position; you can also mark one or selected files watched or unwatched, or mark the whole library watched.
 
 Requires Go, FFmpeg, and FFprobe on the Windows user's `PATH`. FFmpeg can be installed with `scoop install ffmpeg`. Copy `listener/config.example.json` to `listener/config.json` and set `media_dir` and `listen_addr`. The default config points to `F:\\DJ` and `127.0.0.1:8787`. When changing the transfer destination, also change the listener's `media_dir`.
 
