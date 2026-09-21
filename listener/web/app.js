@@ -8,6 +8,7 @@ const el = Object.fromEntries([
 ].map((id) => [id, document.getElementById(id)]));
 
 const localStateKey = "twitch-listener-player-v1";
+let videoClickTimer;
 const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
@@ -192,6 +193,7 @@ async function setWatched(names, watched, all = false) {
 }
 
 function stopMedia() {
+  clearTimeout(videoClickTimer);
   for (const media of [el.video, el.audio]) {
     media.pause();
     media.removeAttribute("src");
@@ -385,7 +387,7 @@ el["player-watched"].addEventListener("click", () => {
   const file = view.recordings.find((item) => item.name === view.current);
   if (file) setWatched([file.name], !file.watched);
 });
-el.play.addEventListener("click", () => {
+function togglePlayback() {
   const media = view.media;
   if (!media) return;
   view.playing = media.paused;
@@ -396,6 +398,28 @@ el.play.addEventListener("click", () => {
     notify(error.message);
   });
   else media.pause();
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement === el.video) await document.exitFullscreen();
+    else await el.video.requestFullscreen();
+  } catch (error) {
+    notify(`Fullscreen failed: ${error.message}`);
+  }
+}
+
+el.play.addEventListener("click", togglePlayback);
+el.video.addEventListener("click", () => {
+  clearTimeout(videoClickTimer);
+  const name = view.current;
+  videoClickTimer = setTimeout(() => {
+    if (view.current === name && view.media === el.video) togglePlayback();
+  }, 300);
+});
+el.video.addEventListener("dblclick", () => {
+  clearTimeout(videoClickTimer);
+  toggleFullscreen();
 });
 el.back.addEventListener("click", () => {
   const media = view.media;
@@ -422,7 +446,7 @@ el.speed.addEventListener("change", () => {
   for (const media of [el.video, el.audio]) media.playbackRate = Number(el.speed.value);
   saveLocalState(true);
 });
-el.fullscreen.addEventListener("click", () => el.video.requestFullscreen());
+el.fullscreen.addEventListener("click", toggleFullscreen);
 window.addEventListener("pagehide", () => {
   view.leaving = true;
   saveLocalState(true);

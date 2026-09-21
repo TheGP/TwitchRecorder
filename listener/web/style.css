@@ -181,7 +181,7 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .artwork[hidden] { display: none; }
 .artwork video {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: contain; background: #05090b;
+  object-fit: contain; background: #05090b; cursor: pointer;
 }
 .player-panel h2 {
   margin: 0; font-size: 21px; line-height: 1.25;
