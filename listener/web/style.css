@@ -175,7 +175,7 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   background: linear-gradient(165deg, #182630 0%, #111b25 58%, #101820 100%);
   box-shadow: 0 26px 70px #03070b54;
 }
-.player-body { max-width: 1000px; margin: 0 auto; }
+.player-body { max-width: 1180px; margin: 0 auto; }
 .player-body.video-mode .artwork { margin-bottom: 16px; }
 .player-details { min-width: 0; }
 .player-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
