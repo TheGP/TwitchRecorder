@@ -71,6 +71,11 @@ function recordingParts(name) {
     : { channel: name.replace(/\.ts$/i, ""), date: "" };
 }
 
+function formatRecordingDate(date) {
+  const [first, month, last] = date.split("-");
+  return first.length === 4 ? `${last}.${month}.${first}` : `${first}.${month}.${last}`;
+}
+
 function visibleRecordings() {
   const query = el.search.value.trim().toLowerCase();
   const files = view.recordings.filter((file) => {
@@ -313,6 +318,7 @@ async function openRecording(name, options = {}) {
     togglePlayback();
     return;
   }
+  const { channel, date } = recordingParts(name);
   saveProgress(true);
   stopMedia();
   view.current = name;
@@ -323,8 +329,10 @@ async function openRecording(name, options = {}) {
   el["player-panel"].classList.remove("is-empty");
   for (const id of ["seek", "play", "player-watched"]) el[id].disabled = true;
   notify("Inspecting recording…");
-  el["player-title"].textContent = name;
-  el["player-subtitle"].textContent = "Loading media details";
+  el["player-title"].textContent = date
+    ? `${channel.charAt(0).toUpperCase()}${channel.slice(1)} · ${formatRecordingDate(date)}`
+    : name;
+  el["player-subtitle"].textContent = date ? name : "Loading media details";
   renderList();
   try {
     const info = await api(`/api/recordings/${encodeURIComponent(name)}/info`);
@@ -335,7 +343,7 @@ async function openRecording(name, options = {}) {
     el.video.hidden = !hasVideo;
     el.artwork.hidden = !hasVideo;
     el["player-body"].classList.toggle("video-mode", hasVideo);
-    el["player-subtitle"].textContent = `${recordingParts(name).channel} · ${formatTime(info.duration)}`;
+    if (!date) el["player-subtitle"].textContent = `${channel} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);
     el.seek.max = String(Math.floor(info.duration));
     for (const id of ["seek", "play", "player-watched"]) el[id].disabled = false;
