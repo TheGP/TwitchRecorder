@@ -144,7 +144,7 @@ function renderList() {
     dot.className = "unwatched-dot" + (file.watched ? " is-invisible" : "");
     dot.title = file.watched ? "" : "Unwatched";
     dot.setAttribute("aria-hidden", "true");
-    row.append(checkbox, icon, main, recordingDate, dot);
+    row.append(dot, checkbox, icon, main, recordingDate);
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "row-delete";
