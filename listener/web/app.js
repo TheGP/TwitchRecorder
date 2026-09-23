@@ -520,6 +520,13 @@ async function toggleFullscreen() {
 }
 
 el.play.addEventListener("click", togglePlayback);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== " " || event.repeat || event.altKey || event.ctrlKey || event.metaKey || !view.media) return;
+  const target = event.target;
+  if (target instanceof Element && (target.isContentEditable || target.closest("button, input, select, textarea, a, summary, [role='button']"))) return;
+  event.preventDefault();
+  togglePlayback();
+});
 el.video.addEventListener("click", () => {
   clearTimeout(videoClickTimer);
   const name = view.current;
