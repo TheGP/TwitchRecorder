@@ -2,7 +2,7 @@ const el = Object.fromEntries([
   "folder", "total-count", "unwatched-count", "watched-count", "refresh",
   "search", "sort", "select-visible", "selection-count", "mark-selected",
   "unmark-selected", "mark-all", "list", "list-empty",
-  "player-panel", "artwork", "player-body", "video", "audio", "player-title", "player-subtitle",
+  "player-panel", "artwork", "avatar", "avatar-fallback", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "play", "volume",
   "fullscreen", "player-watched", "notice"
 ].map((id) => [id, document.getElementById(id)]));
@@ -259,6 +259,9 @@ function stopMedia() {
   view.streamVersion++;
   view.loading = false;
   view.media = null;
+  el.avatar.hidden = true;
+  el.avatar.removeAttribute("src");
+  el["avatar-fallback"].hidden = true;
   for (const media of [el.video, el.audio]) {
     media.pause();
     media.removeAttribute("src");
@@ -266,7 +269,26 @@ function stopMedia() {
     media.hidden = true;
   }
   el.artwork.hidden = true;
-  el["player-body"].classList.remove("video-mode");
+  el["player-body"].classList.remove("video-mode", "audio-mode");
+}
+
+async function loadAvatar(channel, name) {
+  el["avatar-fallback"].hidden = false;
+  try {
+    const { url } = await api(`/api/avatars/${encodeURIComponent(channel)}`);
+    if (!url || view.current !== name || view.info?.kind !== "audio") return;
+    const image = new Image();
+    image.onload = () => {
+      if (view.current !== name || view.info?.kind !== "audio") return;
+      el.avatar.src = url;
+      el.avatar.alt = `${channel} profile picture`;
+      el.avatar.hidden = false;
+      el["avatar-fallback"].hidden = true;
+    };
+    image.src = url;
+  } catch {
+    // Keep the audio artwork fallback when Twitch is unavailable.
+  }
 }
 
 function streamURL(start) {
@@ -375,8 +397,10 @@ async function openRecording(name, options = {}) {
     const hasVideo = info.kind === "video";
     view.media = hasVideo ? el.video : el.audio;
     el.video.hidden = !hasVideo;
-    el.artwork.hidden = !hasVideo;
+    el.artwork.hidden = false;
     el["player-body"].classList.toggle("video-mode", hasVideo);
+    el["player-body"].classList.toggle("audio-mode", !hasVideo);
+    if (!hasVideo) loadAvatar(channel, name);
     if (!date) el["player-subtitle"].textContent = `${channel} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);
     el.seek.max = String(Math.floor(info.duration));

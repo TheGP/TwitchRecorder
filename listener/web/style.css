@@ -185,6 +185,11 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 }
 .player-body { max-width: 1180px; margin: 0 auto; }
 .player-body.video-mode .artwork { margin-bottom: 16px; }
+.player-body.audio-mode {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center; gap: 24px;
+}
+.player-body.audio-mode .artwork { width: 150px; aspect-ratio: 1; border-radius: 18px; }
 .player-details { min-width: 0; }
 .player-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .player-panel.is-empty .timeline,
@@ -201,6 +206,13 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: contain; background: #05090b; cursor: pointer;
 }
+.artwork img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-fallback {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: linear-gradient(145deg, #204039, #10252a);
+  color: #8ae8c9; font-size: 58px;
+}
+.artwork img[hidden], .avatar-fallback[hidden] { display: none; }
 .player-panel h2 {
   margin: 0; font-size: 21px; line-height: 1.25;
   overflow-wrap: anywhere;
@@ -253,6 +265,9 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   .app-header { align-items: flex-start; flex-direction: column; gap: 12px; padding: 22px 0; }
   .header-right { width: 100%; justify-content: space-between; }
   .main-layout { padding-top: 20px; }
+  .player-body.audio-mode { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; }
+  .player-body.audio-mode .artwork { width: 96px; }
+  .avatar-fallback { font-size: 38px; }
   .player-control-row { grid-template-columns: 1fr; gap: 10px; }
   .play-button, .player-options { grid-column: 1; }
   .section-heading h2 { font-size: 27px; }
@@ -260,6 +275,9 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 @media (max-width: 440px) {
   .app-shell { padding-left: 12px; padding-right: 12px; }
   .player-panel { padding: 18px 16px; }
+  .player-body.audio-mode { grid-template-columns: 68px minmax(0, 1fr); gap: 10px; }
+  .player-body.audio-mode .artwork { width: 68px; border-radius: 11px; }
+  .avatar-fallback { font-size: 29px; }
   .stats { gap: 6px; }
   .stat { padding: 12px 9px; }
   .library-controls { flex-wrap: wrap; }

@@ -133,3 +133,23 @@ func TestProgressPersistsUntilWatched(t *testing.T) {
 		t.Fatalf("watched recording kept progress: watched=%v progress=%v", watched, progress)
 	}
 }
+
+func TestProfileImageURL(t *testing.T) {
+	const want = "https://static-cdn.jtvnw.net/jtv_user_pictures/example-profile_image-300x300.png"
+	for _, test := range []struct {
+		name string
+		page string
+		want string
+	}{
+		{name: "Twitch profile", page: `<meta property="og:image" content="` + want + `"/>`, want: want},
+		{name: "attribute order", page: `<meta content="` + want + `" property="og:image">`, want: want},
+		{name: "unrelated image", page: `<meta property="og:image" content="https://example.com/image.png">`},
+		{name: "missing image", page: `<title>Unavailable</title>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := profileImageURL([]byte(test.page)); got != test.want {
+				t.Fatalf("profileImageURL() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
+	"io"
 	"io/fs"
 	"log"
 	"math"
@@ -16,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,6 +53,15 @@ type cachedInfo struct {
 	info     mediaInfo
 }
 
+type avatarInfo struct {
+	url     string
+	expires time.Time
+}
+
+var twitchLogin = regexp.MustCompile(`^[a-z0-9_]{1,25}$`)
+var imageTag = regexp.MustCompile(`(?i)<meta\b[^>]*\bproperty=["']og:image["'][^>]*>`)
+var imageContent = regexp.MustCompile(`(?i)\bcontent=["']([^"']+)["']`)
+
 type watchedFile struct {
 	Watched  map[string]bool    `json:"watched"`
 	Progress map[string]float64 `json:"progress,omitempty"`
@@ -62,12 +74,14 @@ type watchedStore struct {
 }
 
 type app struct {
-	dir     string
-	ffmpeg  string
-	ffprobe string
-	store   *watchedStore
-	metaMu  sync.Mutex
-	meta    map[string]cachedInfo
+	dir      string
+	ffmpeg   string
+	ffprobe  string
+	store    *watchedStore
+	metaMu   sync.Mutex
+	meta     map[string]cachedInfo
+	avatarMu sync.Mutex
+	avatars  map[string]avatarInfo
 }
 
 func main() {
@@ -165,6 +179,7 @@ func (a *app) routes() (http.Handler, error) {
 	mux.HandleFunc("PATCH /api/progress", a.progressHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/info", a.infoHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/stream", a.streamHandler)
+	mux.HandleFunc("GET /api/avatars/{login}", a.avatarHandler)
 	mux.HandleFunc("DELETE /api/recordings/{name}", a.deleteHandler)
 	return mux, nil
 }
@@ -332,6 +347,70 @@ func (a *app) infoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, info)
+}
+
+func (a *app) avatarHandler(w http.ResponseWriter, r *http.Request) {
+	login := strings.ToLower(r.PathValue("login"))
+	if !twitchLogin.MatchString(login) {
+		http.Error(w, "invalid Twitch login", http.StatusBadRequest)
+		return
+	}
+	a.avatarMu.Lock()
+	cached, ok := a.avatars[login]
+	a.avatarMu.Unlock()
+	if ok && time.Now().Before(cached.expires) {
+		writeJSON(w, map[string]string{"url": cached.url})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.twitch.tv/"+login, nil)
+	if err != nil {
+		http.Error(w, "cannot fetch Twitch profile", http.StatusBadGateway)
+		return
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		http.Error(w, "cannot fetch Twitch profile", http.StatusBadGateway)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		http.Error(w, "cannot fetch Twitch profile", http.StatusBadGateway)
+		return
+	}
+	page, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "cannot read Twitch profile", http.StatusBadGateway)
+		return
+	}
+	imageURL := profileImageURL(page)
+	expires := time.Now().Add(24 * time.Hour)
+	if imageURL == "" {
+		expires = time.Now().Add(time.Hour)
+	}
+	a.avatarMu.Lock()
+	if a.avatars == nil {
+		a.avatars = make(map[string]avatarInfo)
+	}
+	a.avatars[login] = avatarInfo{url: imageURL, expires: expires}
+	a.avatarMu.Unlock()
+	writeJSON(w, map[string]string{"url": imageURL})
+}
+
+func profileImageURL(page []byte) string {
+	tag := imageTag.Find(page)
+	match := imageContent.FindSubmatch(tag)
+	if len(match) < 2 {
+		return ""
+	}
+	imageURL := html.UnescapeString(string(match[1]))
+	if !strings.HasPrefix(imageURL, "https://static-cdn.jtvnw.net/jtv_user_pictures/") {
+		return ""
+	}
+	return imageURL
 }
 
 func (a *app) probe(ctx context.Context, name, path string, file os.FileInfo) (mediaInfo, error) {
