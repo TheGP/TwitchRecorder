@@ -46,6 +46,7 @@ The listener is a small Go web server bound to `127.0.0.1`. It reads completed `
 Requires Go, FFmpeg, and FFprobe on the Windows user's `PATH`. FFmpeg can be installed with `scoop install ffmpeg`. Copy `listener/config.example.json` to `listener/config.json` and set `media_dir` and `listen_addr`. The default config points to `F:\\DJ` and `127.0.0.1:8787`. When changing the transfer destination, also change the listener's `media_dir`.
 
 Audio recordings show the channel's Twitch profile picture when its public page provides one. The listener caches the image URL for a day and shows a music icon if the picture is unavailable.
+Historical `nyx-*.ts` audio recordings use the `n_y_x_official` picture.
 
 Run `listener/install.ps1` from PowerShell. It builds the listener, installs the `TwitchListener` scheduled task for this user's logon, and starts it immediately. Open [http://127.0.0.1:8787](http://127.0.0.1:8787) and pin that tab if desired. The task runs while this Windows user is logged in and restarts after failures. Run the install script again after code changes. Logs are in `listener/listener.log`.
 

@@ -59,7 +59,7 @@ type avatarInfo struct {
 }
 
 var twitchLogin = regexp.MustCompile(`^[a-z0-9_]{1,25}$`)
-var imageTag = regexp.MustCompile(`(?i)<meta\b[^>]*\bproperty=["']og:image["'][^>]*>`)
+var imageTag = regexp.MustCompile(`(?i)<meta\b[^>]*\b(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*>`)
 var imageContent = regexp.MustCompile(`(?i)\bcontent=["']([^"']+)["']`)
 
 type watchedFile struct {
@@ -389,7 +389,7 @@ func (a *app) avatarHandler(w http.ResponseWriter, r *http.Request) {
 	imageURL := profileImageURL(page)
 	expires := time.Now().Add(24 * time.Hour)
 	if imageURL == "" {
-		expires = time.Now().Add(time.Hour)
+		expires = time.Now().Add(5 * time.Minute)
 	}
 	a.avatarMu.Lock()
 	if a.avatars == nil {
@@ -401,16 +401,17 @@ func (a *app) avatarHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func profileImageURL(page []byte) string {
-	tag := imageTag.Find(page)
-	match := imageContent.FindSubmatch(tag)
-	if len(match) < 2 {
-		return ""
+	for _, tag := range imageTag.FindAll(page, -1) {
+		match := imageContent.FindSubmatch(tag)
+		if len(match) < 2 {
+			continue
+		}
+		imageURL := html.UnescapeString(string(match[1]))
+		if strings.HasPrefix(imageURL, "https://static-cdn.jtvnw.net/jtv_user_pictures/") {
+			return imageURL
+		}
 	}
-	imageURL := html.UnescapeString(string(match[1]))
-	if !strings.HasPrefix(imageURL, "https://static-cdn.jtvnw.net/jtv_user_pictures/") {
-		return ""
-	}
-	return imageURL
+	return ""
 }
 
 func (a *app) probe(ctx context.Context, name, path string, file os.FileInfo) (mediaInfo, error) {

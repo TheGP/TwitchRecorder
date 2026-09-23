@@ -142,7 +142,9 @@ func TestProfileImageURL(t *testing.T) {
 		want string
 	}{
 		{name: "Twitch profile", page: `<meta property="og:image" content="` + want + `"/>`, want: want},
+		{name: "Twitter image", page: `<meta name="twitter:image" content="` + want + `"/>`, want: want},
 		{name: "attribute order", page: `<meta content="` + want + `" property="og:image">`, want: want},
+		{name: "skip unrelated image", page: `<meta property="og:image" content="https://example.com/image.png"><meta name="twitter:image" content="` + want + `">`, want: want},
 		{name: "unrelated image", page: `<meta property="og:image" content="https://example.com/image.png">`},
 		{name: "missing image", page: `<title>Unavailable</title>`},
 	} {

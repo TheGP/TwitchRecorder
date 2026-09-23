@@ -275,7 +275,8 @@ function stopMedia() {
 async function loadAvatar(channel, name) {
   el["avatar-fallback"].hidden = false;
   try {
-    const { url } = await api(`/api/avatars/${encodeURIComponent(channel)}`);
+    const login = channel === "nyx" ? "n_y_x_official" : channel;
+    const { url } = await api(`/api/avatars/${encodeURIComponent(login)}`);
     if (!url || view.current !== name || view.info?.kind !== "audio") return;
     const image = new Image();
     image.onload = () => {
