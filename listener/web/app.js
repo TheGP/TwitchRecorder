@@ -12,7 +12,8 @@ let videoClickTimer;
 const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
-  playing: false, leaving: false, lastProgressSave: 0, lastLocalSave: 0
+  playing: false, requestedPlay: false, retryCount: 0, streamVersion: 0,
+  leaving: false, lastProgressSave: 0, lastLocalSave: 0
 };
 
 async function api(path, options = {}) {
@@ -255,13 +256,15 @@ async function deleteRecording(name) {
 
 function stopMedia() {
   clearTimeout(videoClickTimer);
+  view.streamVersion++;
+  view.loading = false;
+  view.media = null;
   for (const media of [el.video, el.audio]) {
     media.pause();
     media.removeAttribute("src");
     media.load();
     media.hidden = true;
   }
-  view.media = null;
   el.artwork.hidden = true;
   el["player-body"].classList.remove("video-mode");
 }
@@ -287,11 +290,14 @@ function saveProgress(force = false, seconds = view.start + (view.media?.current
   }).catch((error) => notify(`Could not save progress: ${error.message}`));
 }
 
-async function playAt(start, shouldPlay = true, savePosition = true) {
-  if (!view.current || !view.info) return;
+async function playAt(start, shouldPlay = true, savePosition = true, retry = false) {
+  if (!view.current || !view.info || !view.media) return;
   const media = view.media;
+  const version = ++view.streamVersion;
+  if (!retry) view.retryCount = 0;
   view.start = Math.max(0, Math.min(start, Math.max(0, view.info.duration - 0.5)));
   view.playing = shouldPlay;
+  view.requestedPlay = shouldPlay;
   view.loading = true;
   media.src = streamURL(view.start);
   media.volume = Number(el.volume.value);
@@ -303,14 +309,40 @@ async function playAt(start, shouldPlay = true, savePosition = true) {
     try {
       await media.play();
     } catch (error) {
-      if (error.name !== "AbortError") {
+      if (version === view.streamVersion && error.name !== "AbortError" && !media.error) {
         view.playing = false;
+        view.requestedPlay = false;
         saveLocalState(true);
         notify(error.name === "NotAllowedError" ? "Press play to resume." : `Playback could not start: ${error.message}`);
       }
     }
   }
-  view.loading = false;
+  if (version === view.streamVersion) {
+    view.loading = false;
+    if (media.error) recoverMediaError(media);
+  }
+}
+
+function recoverMediaError(media) {
+  if (media !== view.media || !media.error || !view.info) return;
+  const position = Math.min(view.info.duration - 0.5, view.start + (media.currentTime || 0));
+  if (view.requestedPlay && view.retryCount === 0 && position + 2 < view.info.duration) {
+    view.retryCount = 1;
+    playAt(position + 2, true, false, true);
+    return;
+  }
+  saveProgress(true, position);
+  view.start = position;
+  view.playing = false;
+  view.requestedPlay = false;
+  media.removeAttribute("src");
+  media.load();
+  updateTimeline();
+  saveLocalState(true, position);
+  el.play.textContent = "▶";
+  el.play.setAttribute("aria-label", "Play");
+  renderList();
+  notify("Playback failed. Press play to retry, or select another recording.");
 }
 
 async function openRecording(name, options = {}) {
@@ -325,6 +357,8 @@ async function openRecording(name, options = {}) {
   view.info = null;
   view.start = 0;
   view.playing = options.shouldPlay ?? true;
+  view.requestedPlay = view.playing;
+  view.retryCount = 0;
   view.lastProgressSave = 0;
   el["player-panel"].classList.remove("is-empty");
   for (const id of ["seek", "play", "player-watched"]) el[id].disabled = true;
@@ -375,6 +409,7 @@ function updateWatchedButton() {
 for (const media of [el.video, el.audio]) {
   media.addEventListener("timeupdate", () => {
     if (media === view.media) {
+      if (view.retryCount && media.currentTime > 10) view.retryCount = 0;
       updateTimeline();
       if (!view.loading) {
         saveProgress();
@@ -412,6 +447,7 @@ for (const media of [el.video, el.audio]) {
       const index = visible.findIndex((item) => item.name === name);
       const nextName = index >= 0 ? visible[index + 1]?.name : null;
       view.playing = false;
+      view.requestedPlay = false;
       saveLocalState(true, 0);
       updateTimeline();
       renderList();
@@ -425,9 +461,7 @@ for (const media of [el.video, el.audio]) {
     }
   });
   media.addEventListener("error", () => {
-    if (media === view.media && media.error && !view.loading) {
-      notify(`Playback failed: ${media.error.message || `browser media error ${media.error.code}`}`);
-    }
+    if (!view.loading) recoverMediaError(media);
   });
 }
 
@@ -463,9 +497,13 @@ function togglePlayback() {
   const media = view.media;
   if (!media) return;
   view.playing = media.paused;
+  view.requestedPlay = media.paused;
   saveLocalState(true);
-  if (media.paused) media.play().catch((error) => {
+  if (media.paused && !media.getAttribute("src")) {
+    playAt(Math.min(view.start + 2, view.info.duration - 0.5));
+  } else if (media.paused) media.play().catch((error) => {
     view.playing = false;
+    view.requestedPlay = false;
     saveLocalState(true);
     notify(error.message);
   });
