@@ -445,7 +445,7 @@ for (const media of [el.video, el.audio]) {
       const reachedEnd = view.start + media.currentTime >= view.info.duration - 10;
       const visible = visibleRecordings();
       const index = visible.findIndex((item) => item.name === name);
-      const nextName = index >= 0 ? visible[index + 1]?.name : null;
+      const nextName = index >= 0 ? visible.slice(index + 1).find((item) => !item.watched)?.name : null;
       view.playing = false;
       view.requestedPlay = false;
       saveLocalState(true, 0);
