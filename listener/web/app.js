@@ -9,6 +9,7 @@ const el = Object.fromEntries([
 
 const localStateKey = "twitch-listener-player-v1";
 let videoClickTimer;
+let seekReleaseTimer;
 const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
@@ -379,6 +380,8 @@ async function openRecording(name, options = {}) {
   view.current = name;
   view.info = null;
   view.start = 0;
+  view.seeking = false;
+  clearTimeout(seekReleaseTimer);
   view.playing = options.shouldPlay ?? true;
   view.requestedPlay = view.playing;
   view.retryCount = 0;
@@ -563,15 +566,32 @@ el.video.addEventListener("dblclick", () => {
   clearTimeout(videoClickTimer);
   toggleFullscreen();
 });
+function commitSeek() {
+  clearTimeout(seekReleaseTimer);
+  if (!view.media || !view.info) return;
+  const position = Number(el.seek.value);
+  view.seeking = false;
+  playAt(position, !view.media.paused);
+}
+
+function finishSeekAfterRelease() {
+  if (!view.seeking) return;
+  clearTimeout(seekReleaseTimer);
+  // A normal change event commits first. Recover if the browser drops it.
+  seekReleaseTimer = setTimeout(() => {
+    if (view.seeking) commitSeek();
+  }, 50);
+}
+
 el.seek.addEventListener("input", () => {
   view.seeking = true;
   el.elapsed.textContent = formatTime(Number(el.seek.value));
 });
-el.seek.addEventListener("change", () => {
-  const media = view.media;
-  view.seeking = false;
-  playAt(Number(el.seek.value), !media.paused);
-});
+el.seek.addEventListener("change", commitSeek);
+el.seek.addEventListener("keyup", finishSeekAfterRelease);
+window.addEventListener("pointerup", finishSeekAfterRelease);
+window.addEventListener("pointercancel", finishSeekAfterRelease);
+window.addEventListener("blur", finishSeekAfterRelease);
 el.volume.addEventListener("input", () => {
   for (const media of [el.video, el.audio]) media.volume = Number(el.volume.value);
   saveLocalState(true);
