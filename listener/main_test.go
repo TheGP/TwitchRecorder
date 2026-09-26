@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -227,5 +230,22 @@ func TestProfileImageURL(t *testing.T) {
 				t.Fatalf("profileImageURL() = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestFetchProfileImageRetriesMissingMetadata(t *testing.T) {
+	const want = "https://static-cdn.jtvnw.net/jtv_user_pictures/example-profile_image-300x300.png"
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			fmt.Fprint(w, `<title>Twitch</title>`)
+			return
+		}
+		fmt.Fprintf(w, `<meta property="og:image" content="%s">`, want)
+	}))
+	defer server.Close()
+	got, err := fetchProfileImage(context.Background(), server.Client(), server.URL)
+	if err != nil || got != want || requests.Load() != 2 {
+		t.Fatalf("fetchProfileImage() = %q after %d requests, err=%v", got, requests.Load(), err)
 	}
 }

@@ -415,39 +415,57 @@ func (a *app) avatarHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.twitch.tv/"+login, nil)
+	imageURL, err := fetchProfileImage(ctx, http.DefaultClient, "https://www.twitch.tv/"+login)
 	if err != nil {
 		http.Error(w, "cannot fetch Twitch profile", http.StatusBadGateway)
 		return
-	}
-	request.Header.Set("User-Agent", "Mozilla/5.0")
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		http.Error(w, "cannot fetch Twitch profile", http.StatusBadGateway)
-		return
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		http.Error(w, "cannot fetch Twitch profile", http.StatusBadGateway)
-		return
-	}
-	page, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if err != nil {
-		http.Error(w, "cannot read Twitch profile", http.StatusBadGateway)
-		return
-	}
-	imageURL := profileImageURL(page)
-	expires := time.Now().Add(24 * time.Hour)
-	if imageURL == "" {
-		expires = time.Now().Add(5 * time.Minute)
 	}
 	a.avatarMu.Lock()
 	if a.avatars == nil {
 		a.avatars = make(map[string]avatarInfo)
 	}
-	a.avatars[login] = avatarInfo{url: imageURL, expires: expires}
+	a.avatars[login] = avatarInfo{url: imageURL, expires: time.Now().Add(24 * time.Hour)}
 	a.avatarMu.Unlock()
 	writeJSON(w, map[string]string{"url": imageURL})
+}
+
+func fetchProfileImage(ctx context.Context, client *http.Client, profileURL string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, profileURL, nil)
+		if err != nil {
+			return "", err
+		}
+		request.Header.Set("User-Agent", "Mozilla/5.0")
+		response, err := client.Do(request)
+		if err == nil {
+			page, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+			response.Body.Close()
+			imageURL := profileImageURL(page)
+			switch {
+			case readErr != nil:
+				lastErr = readErr
+			case response.StatusCode != http.StatusOK:
+				lastErr = fmt.Errorf("Twitch profile returned %s", response.Status)
+			case imageURL != "":
+				return imageURL, nil
+			default:
+				lastErr = errors.New("Twitch profile image is missing")
+			}
+		} else {
+			lastErr = err
+		}
+		if attempt < 2 {
+			timer := time.NewTimer(250 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return "", ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	return "", lastErr
 }
 
 func profileImageURL(page []byte) string {
