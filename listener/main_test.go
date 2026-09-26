@@ -75,6 +75,9 @@ func TestWatchedStatusPersistsAndBulkUpdate(t *testing.T) {
 	if len(result.Recordings) != 2 {
 		t.Fatalf("expected only completed .ts files, got %d", len(result.Recordings))
 	}
+	if result.Recordings[0].HasChat || result.Recordings[1].HasChat {
+		t.Fatal("recording without a chat sidecar reported chat")
+	}
 }
 
 func TestProgressPersistsUntilWatched(t *testing.T) {
@@ -162,6 +165,46 @@ func TestDeleteRecordingAlsoDeletesChatSidecar(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("deleted file still exists: %s (%v)", path, err)
 		}
+	}
+}
+
+func TestChatSidecarIsListedAndServed(t *testing.T) {
+	dir := t.TempDir()
+	name := "alpha-2026-09-21.ts"
+	chatName := "alpha-2026-09-21.chat.jsonl"
+	chat := `{"offset_seconds":12.5,"username":"viewer","message":"hello"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("sample"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, chatName), []byte(chat), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := loadWatched(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverApp := &app{dir: dir, store: store}
+	mux, err := serverApp.routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/recordings", nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var listed struct {
+		Recordings []recording `json:"recordings"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Recordings) != 1 || !listed.Recordings[0].HasChat {
+		t.Fatalf("chat sidecar not listed: %+v", listed.Recordings)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/recordings/"+name+"/chat", nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != chat {
+		t.Fatalf("chat response: %d %q", response.Code, response.Body.String())
 	}
 }
 

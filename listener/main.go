@@ -40,6 +40,7 @@ type recording struct {
 	Modified time.Time `json:"modified"`
 	Watched  bool      `json:"watched"`
 	Progress float64   `json:"progress,omitempty"`
+	HasChat  bool      `json:"has_chat"`
 }
 
 type mediaInfo struct {
@@ -178,6 +179,7 @@ func (a *app) routes() (http.Handler, error) {
 	mux.HandleFunc("PATCH /api/watched", a.watchedHandler)
 	mux.HandleFunc("PATCH /api/progress", a.progressHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/info", a.infoHandler)
+	mux.HandleFunc("GET /api/recordings/{name}/chat", a.chatHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/stream", a.streamHandler)
 	mux.HandleFunc("GET /api/avatars/{login}", a.avatarHandler)
 	mux.HandleFunc("DELETE /api/recordings/{name}", a.deleteHandler)
@@ -200,7 +202,9 @@ func (a *app) files() ([]recording, error) {
 			continue
 		}
 		watched, progress := a.store.status(name)
-		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Progress: progress})
+		chatInfo, chatErr := os.Lstat(chatPath(filepath.Join(a.dir, name)))
+		hasChat := chatErr == nil && chatInfo.Mode().IsRegular()
+		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Progress: progress, HasChat: hasChat})
 	}
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].Modified.Equal(files[j].Modified) {
@@ -260,14 +264,14 @@ func (a *app) deleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot delete recording", http.StatusInternalServerError)
 		return
 	}
-	chatPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".chat.jsonl"
-	if info, err := os.Lstat(chatPath); err == nil {
+	sidecar := chatPath(path)
+	if info, err := os.Lstat(sidecar); err == nil {
 		if info.Mode().IsRegular() {
-			if err := os.Remove(chatPath); err != nil {
+			if err := os.Remove(sidecar); err != nil {
 				log.Printf("Deleted %s but could not delete its chat sidecar: %v", name, err)
 			}
 		} else {
-			log.Printf("Deleted %s but kept non-regular chat sidecar %s", name, chatPath)
+			log.Printf("Deleted %s but kept non-regular chat sidecar %s", name, sidecar)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		log.Printf("Deleted %s but could not inspect its chat sidecar: %v", name, err)
@@ -279,6 +283,40 @@ func (a *app) deleteHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Deleted %s but could not clear its saved status: %v", name, err)
 	}
 	writeJSON(w, map[string]bool{"deleted": true})
+}
+
+func chatPath(mediaPath string) string {
+	return strings.TrimSuffix(mediaPath, filepath.Ext(mediaPath)) + ".chat.jsonl"
+}
+
+func (a *app) chatHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	path, _, err := a.file(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	sidecar := chatPath(path)
+	entry, err := os.Lstat(sidecar)
+	if err != nil || !entry.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
+	file, err := os.Open(sidecar)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || !os.SameFile(entry, info) {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, filepath.Base(sidecar), info.ModTime(), file)
 }
 
 func (a *app) watchedHandler(w http.ResponseWriter, r *http.Request) {

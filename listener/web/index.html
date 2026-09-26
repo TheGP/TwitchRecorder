@@ -37,7 +37,10 @@
             <audio id="audio" preload="none" hidden></audio>
             <div class="player-title-row">
               <h2 id="player-title">Pick a recording</h2>
-              <button id="player-watched" class="watched-toggle" disabled>Mark watched</button>
+              <div class="player-title-actions">
+                <button id="chat-toggle" class="chat-toggle" aria-expanded="false" aria-controls="chat-panel" disabled>Chat</button>
+                <button id="player-watched" class="watched-toggle" disabled>Mark watched</button>
+              </div>
             </div>
             <p id="player-subtitle" class="player-subtitle">Select a file below to start listening or watching.</p>
             <div class="timeline">
@@ -56,6 +59,14 @@
               </div>
             </div>
             <p id="notice" class="notice" role="status"></p>
+            <section id="chat-panel" class="chat-panel" aria-labelledby="chat-title" hidden>
+              <div class="chat-heading">
+                <h3 id="chat-title">Synchronized chat</h3>
+                <span id="chat-status"></span>
+              </div>
+              <div id="chat-messages" class="chat-messages"></div>
+              <p id="chat-empty" class="chat-empty">No messages at this point in the recording.</p>
+            </section>
           </div>
         </div>
       </aside>

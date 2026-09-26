@@ -179,8 +179,9 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 				chat := chatRecordingFor(recording)
 				chatCtx, stopChat := context.WithCancel(ctx)
 				chatResult := make(chan chatCaptureResult, 1)
+				recordingStarted := time.Now().UTC()
 				go func() {
-					count, err := recordChat(chatCtx, chatIdentity, channel.login, chat.part)
+					count, err := recordChat(chatCtx, chatIdentity, channel.login, chat.part, recordingStarted)
 					chatResult <- chatCaptureResult{count: count, err: err}
 				}()
 				command := exec.CommandContext(ctx, config.streamlink, "--output", recording.part, "https://www.twitch.tv/"+channel.login, channel.quality)

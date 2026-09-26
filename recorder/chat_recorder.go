@@ -37,6 +37,7 @@ type chatRecordingFile struct {
 type chatRecord struct {
 	Timestamp  time.Time         `json:"timestamp"`
 	ReceivedAt time.Time         `json:"received_at"`
+	Offset     float64           `json:"offset_seconds"`
 	Channel    string            `json:"channel"`
 	Username   string            `json:"username"`
 	Display    string            `json:"display_name,omitempty"`
@@ -97,7 +98,7 @@ func discardChatRecordingWithoutMedia(recording chatRecordingFile) error {
 	return os.Remove(recording.part)
 }
 
-func recordChat(ctx context.Context, identity chatIdentity, channel, path string) (int, error) {
+func recordChat(ctx context.Context, identity chatIdentity, channel, path string, startedAt time.Time) (int, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return 0, fmt.Errorf("open chat recording: %w", err)
@@ -109,6 +110,7 @@ func recordChat(ctx context.Context, identity chatIdentity, channel, path string
 	for ctx.Err() == nil {
 		var writeErr error
 		sessionCount, err := recordChatSession(ctx, identity, channel, func(record chatRecord) error {
+			record.Offset = chatOffset(startedAt, record.ReceivedAt)
 			writeErr = encoder.Encode(record)
 			return writeErr
 		})
@@ -142,6 +144,10 @@ func recordChat(ctx context.Context, identity chatIdentity, channel, path string
 		lastErr = err
 	}
 	return count, lastErr
+}
+
+func chatOffset(startedAt, receivedAt time.Time) float64 {
+	return max(0, receivedAt.Sub(startedAt).Seconds())
 }
 
 func recordChatSession(ctx context.Context, identity chatIdentity, channel string, write func(chatRecord) error) (int, error) {
@@ -353,7 +359,7 @@ func runChatTest(channel string, duration time.Duration, output string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	count, captureErr := recordChat(ctx, identity, channel, chat.part)
+	count, captureErr := recordChat(ctx, identity, channel, chat.part, time.Now().UTC())
 	if err := completeChatRecording(chat); err != nil {
 		return err
 	}

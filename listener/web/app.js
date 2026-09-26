@@ -4,7 +4,8 @@ const el = Object.fromEntries([
   "unmark-selected", "mark-all", "list", "list-empty",
   "player-panel", "artwork", "avatar", "avatar-fallback", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "play", "volume",
-  "fullscreen", "player-watched", "notice"
+  "fullscreen", "player-watched", "notice", "chat-toggle", "chat-panel",
+  "chat-messages", "chat-empty", "chat-status"
 ].map((id) => [id, document.getElementById(id)]));
 
 const localStateKey = "twitch-listener-player-v1";
@@ -14,7 +15,8 @@ const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
   playing: false, requestedPlay: false, retryCount: 0, streamVersion: 0,
-  leaving: false, lastProgressSave: 0, lastLocalSave: 0
+  leaving: false, lastProgressSave: 0, lastLocalSave: 0,
+  chat: [], chatName: null, chatVisible: false, chatIndex: -1
 };
 
 async function api(path, options = {}) {
@@ -136,7 +138,7 @@ function renderList() {
     title.title = file.name;
     const meta = document.createElement("div");
     meta.className = "row-meta";
-    meta.textContent = `${file.name} · ${formatSize(file.size)}`;
+    meta.textContent = `${file.name} · ${formatSize(file.size)}${file.has_chat ? " · chat" : ""}`;
     meta.title = file.name;
     main.append(title, meta);
     const recordingDate = document.createElement("span");
@@ -197,6 +199,7 @@ async function refresh() {
     renderStats();
     renderList();
     updateWatchedButton();
+    updateChatButton();
     notify("");
   } catch (error) {
     notify(`Library unavailable: ${error.message}`);
@@ -226,6 +229,7 @@ async function deleteRecording(name) {
     view.current = null;
     view.info = null;
     view.playing = false;
+    resetChat();
     stopMedia();
   }
   try {
@@ -244,7 +248,7 @@ async function deleteRecording(name) {
       el.play.textContent = "▶";
       el.play.setAttribute("aria-label", "Play");
       el.fullscreen.hidden = true;
-      for (const id of ["seek", "play", "player-watched"]) el[id].disabled = true;
+      for (const id of ["seek", "play", "player-watched", "chat-toggle"]) el[id].disabled = true;
       saveLocalState(true, 0);
     }
     await refresh();
@@ -271,6 +275,18 @@ function stopMedia() {
   }
   el.artwork.hidden = true;
   el["player-body"].classList.remove("video-mode", "audio-mode");
+}
+
+function resetChat() {
+  view.chat = [];
+  view.chatName = null;
+  view.chatVisible = false;
+  view.chatIndex = -1;
+  el["chat-panel"].hidden = true;
+  el["chat-toggle"].setAttribute("aria-expanded", "false");
+  el["chat-messages"].replaceChildren();
+  el["chat-empty"].hidden = false;
+  el["chat-status"].textContent = "";
 }
 
 async function loadAvatar(channel, name) {
@@ -377,6 +393,7 @@ async function openRecording(name, options = {}) {
   const { channel, date } = recordingParts(name);
   saveProgress(true);
   stopMedia();
+  resetChat();
   view.current = name;
   view.info = null;
   view.start = 0;
@@ -387,7 +404,7 @@ async function openRecording(name, options = {}) {
   view.retryCount = 0;
   view.lastProgressSave = 0;
   el["player-panel"].classList.remove("is-empty");
-  for (const id of ["seek", "play", "player-watched"]) el[id].disabled = true;
+  for (const id of ["seek", "play", "player-watched", "chat-toggle"]) el[id].disabled = true;
   notify("Inspecting recording…");
   el["player-title"].textContent = date
     ? `${channel.charAt(0).toUpperCase()}${channel.slice(1)} · ${formatRecordingDate(date)}`
@@ -411,6 +428,7 @@ async function openRecording(name, options = {}) {
     for (const id of ["seek", "play", "player-watched"]) el[id].disabled = false;
     el.fullscreen.hidden = info.kind !== "video";
     updateWatchedButton();
+    updateChatButton();
     notify("");
     const file = view.recordings.find((item) => item.name === name);
     const saved = file?.watched ? 0 : (options.start ?? file?.progress ?? 0);
@@ -427,11 +445,94 @@ function updateTimeline() {
   const current = Math.min(view.info.duration, view.start + (view.media?.currentTime || 0));
   if (!view.seeking) el.seek.value = String(Math.floor(current));
   el.elapsed.textContent = formatTime(current);
+  syncChat(current);
 }
 
 function updateWatchedButton() {
   const file = view.recordings.find((item) => item.name === view.current);
   el["player-watched"].textContent = file?.watched ? "Mark unwatched" : "Mark watched";
+}
+
+function updateChatButton() {
+  const file = view.recordings.find((item) => item.name === view.current);
+  const available = Boolean(file?.has_chat);
+  el["chat-toggle"].disabled = !available;
+  el["chat-toggle"].title = available ? "Show synchronized Twitch chat" : "No chat was recorded for this file";
+  if (!available && view.chatVisible) resetChat();
+}
+
+function syncChat(seconds) {
+  if (!view.chatVisible || view.chatName !== view.current) return;
+  let low = 0;
+  let high = view.chat.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (view.chat[middle].offset_seconds <= seconds) low = middle + 1;
+    else high = middle;
+  }
+  if (low === view.chatIndex) return;
+  view.chatIndex = low;
+  const rows = document.createDocumentFragment();
+  for (const message of view.chat.slice(Math.max(0, low - 200), low)) {
+    const row = document.createElement("div");
+    row.className = "chat-message";
+    const time = document.createElement("span");
+    time.className = "chat-time";
+    time.textContent = formatTime(message.offset_seconds);
+    const author = document.createElement("span");
+    author.className = "chat-author";
+    author.textContent = message.display_name || message.username;
+    if (/^#[0-9a-f]{6}$/i.test(message.color || "")) author.style.color = message.color;
+    const text = document.createElement("span");
+    text.className = "chat-text";
+    text.textContent = message.message;
+    row.append(time, author, text);
+    rows.append(row);
+  }
+  el["chat-messages"].replaceChildren(rows);
+  el["chat-empty"].hidden = low !== 0;
+  el["chat-status"].textContent = `${low} / ${view.chat.length}`;
+  el["chat-messages"].scrollTop = el["chat-messages"].scrollHeight;
+}
+
+async function toggleChat() {
+  if (view.chatVisible) {
+    view.chatVisible = false;
+    el["chat-panel"].hidden = true;
+    el["chat-toggle"].setAttribute("aria-expanded", "false");
+    return;
+  }
+  const name = view.current;
+  const file = view.recordings.find((item) => item.name === name);
+  if (!name || !file?.has_chat) return;
+  el["chat-toggle"].disabled = true;
+  try {
+    if (view.chatName !== name) {
+      const response = await fetch(`/api/recordings/${encodeURIComponent(name)}/chat`);
+      if (!response.ok) throw new Error((await response.text()).trim() || `Request failed (${response.status})`);
+      const messages = [];
+      for (const line of (await response.text()).split("\n")) {
+        if (!line.trim()) continue;
+        const message = JSON.parse(line);
+        if (!Number.isFinite(message.offset_seconds) || message.offset_seconds < 0 ||
+            typeof message.username !== "string" || typeof message.message !== "string") continue;
+        messages.push(message);
+      }
+      messages.sort((a, b) => a.offset_seconds - b.offset_seconds);
+      if (view.current !== name) return;
+      view.chat = messages;
+      view.chatName = name;
+    }
+    view.chatVisible = true;
+    view.chatIndex = -1;
+    el["chat-panel"].hidden = false;
+    el["chat-toggle"].setAttribute("aria-expanded", "true");
+    syncChat(view.start + (view.media?.currentTime || 0));
+  } catch (error) {
+    notify(`Cannot open chat: ${error.message}`);
+  } finally {
+    updateChatButton();
+  }
 }
 
 for (const media of [el.video, el.audio]) {
@@ -521,6 +622,7 @@ el["player-watched"].addEventListener("click", () => {
   const file = view.recordings.find((item) => item.name === view.current);
   if (file) setWatched([file.name], !file.watched);
 });
+el["chat-toggle"].addEventListener("click", toggleChat);
 function togglePlayback() {
   const media = view.media;
   if (!media) return;
@@ -585,7 +687,9 @@ function finishSeekAfterRelease() {
 
 el.seek.addEventListener("input", () => {
   view.seeking = true;
-  el.elapsed.textContent = formatTime(Number(el.seek.value));
+  const position = Number(el.seek.value);
+  el.elapsed.textContent = formatTime(position);
+  syncChat(position);
 });
 el.seek.addEventListener("change", commitSeek);
 el.seek.addEventListener("keyup", finishSeekAfterRelease);

@@ -34,6 +34,16 @@ func TestParseChatMessageIgnoresNonMessages(t *testing.T) {
 	}
 }
 
+func TestChatOffsetUsesRecordingStart(t *testing.T) {
+	started := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	if got := chatOffset(started, started.Add(12*time.Second+500*time.Millisecond)); got != 12.5 {
+		t.Fatalf("chat offset = %v, want 12.5", got)
+	}
+	if got := chatOffset(started, started.Add(-time.Second)); got != 0 {
+		t.Fatalf("negative chat offset = %v, want 0", got)
+	}
+}
+
 func TestChatRecordingUsesMatchingFilenameAndFinalizesEmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	media := recordingFile{final: filepath.Join(dir, "tkkttony-2026-09-26-2.ts")}
