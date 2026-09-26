@@ -229,3 +229,41 @@ func TestProfileImageURL(t *testing.T) {
 		})
 	}
 }
+
+func TestServeAvatarImage(t *testing.T) {
+	const image = "\x89PNG\r\n\x1a\nimage"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(image))
+	}))
+	defer server.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/avatars/roice?image=1", nil)
+	response := httptest.NewRecorder()
+	serveAvatar(response, request, server.URL)
+	if response.Code != http.StatusOK || response.Body.String() != image || response.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("image response: status=%d type=%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+}
+
+func TestServeAvatarRejectsNonImage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html>not an image</html>"))
+	}))
+	defer server.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/avatars/roice?image=1", nil)
+	response := httptest.NewRecorder()
+	serveAvatar(response, request, server.URL)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("non-image response: status=%d, want %d", response.Code, http.StatusBadGateway)
+	}
+}
+
+func TestServeAvatarMissingImageIsNotCached(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/avatars/roice?image=1", nil)
+	response := httptest.NewRecorder()
+	serveAvatar(response, request, "")
+	if response.Code != http.StatusNotFound || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("missing image response: status=%d cache=%q", response.Code, response.Header().Get("Cache-Control"))
+	}
+}

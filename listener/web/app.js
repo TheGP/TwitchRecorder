@@ -11,6 +11,7 @@ const el = Object.fromEntries([
 const localStateKey = "twitch-listener-player-v1";
 let videoClickTimer;
 let seekReleaseTimer;
+let avatarRetryTimer;
 const view = {
   recordings: [], selected: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
@@ -261,6 +262,7 @@ async function deleteRecording(name) {
 
 function stopMedia() {
   clearTimeout(videoClickTimer);
+  clearTimeout(avatarRetryTimer);
   view.streamVersion++;
   view.loading = false;
   view.media = null;
@@ -289,24 +291,22 @@ function resetChat() {
   el["chat-status"].textContent = "";
 }
 
-async function loadAvatar(channel, name) {
+function loadAvatar(channel, name, attempt = 0) {
   el["avatar-fallback"].hidden = false;
-  try {
-    const login = channel === "nyx" ? "n_y_x_official" : channel;
-    const { url } = await api(`/api/avatars/${encodeURIComponent(login)}`);
-    if (!url || view.current !== name || view.info?.kind !== "audio") return;
-    const image = new Image();
-    image.onload = () => {
-      if (view.current !== name || view.info?.kind !== "audio") return;
-      el.avatar.src = url;
-      el.avatar.alt = `${channel} profile picture`;
-      el.avatar.hidden = false;
-      el["avatar-fallback"].hidden = true;
-    };
-    image.src = url;
-  } catch {
-    // Keep the audio artwork fallback when Twitch is unavailable.
-  }
+  const login = channel === "nyx" ? "n_y_x_official" : channel;
+  const image = new Image();
+  image.onload = () => {
+    if (view.current !== name || view.info?.kind !== "audio") return;
+    el.avatar.src = image.src;
+    el.avatar.alt = `${channel} profile picture`;
+    el.avatar.hidden = false;
+    el["avatar-fallback"].hidden = true;
+  };
+  image.onerror = () => {
+    if (view.current !== name || view.info?.kind !== "audio" || attempt >= 2) return;
+    avatarRetryTimer = setTimeout(() => loadAvatar(channel, name, attempt + 1), attempt ? 15000 : 3000);
+  };
+  image.src = `/api/avatars/${encodeURIComponent(login)}?image=1`;
 }
 
 function streamURL(start) {

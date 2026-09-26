@@ -409,7 +409,7 @@ func (a *app) avatarHandler(w http.ResponseWriter, r *http.Request) {
 	cached, ok := a.avatars[login]
 	a.avatarMu.Unlock()
 	if ok && time.Now().Before(cached.expires) {
-		writeJSON(w, map[string]string{"url": cached.url})
+		serveAvatar(w, r, cached.url)
 		return
 	}
 
@@ -437,17 +437,65 @@ func (a *app) avatarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	imageURL := profileImageURL(page)
-	expires := time.Now().Add(24 * time.Hour)
+	if imageURL != "" {
+		a.avatarMu.Lock()
+		if a.avatars == nil {
+			a.avatars = make(map[string]avatarInfo)
+		}
+		a.avatars[login] = avatarInfo{url: imageURL, expires: time.Now().Add(24 * time.Hour)}
+		a.avatarMu.Unlock()
+	}
+	serveAvatar(w, r, imageURL)
+}
+
+func serveAvatar(w http.ResponseWriter, r *http.Request, imageURL string) {
+	if r.URL.Query().Get("image") != "1" {
+		if imageURL == "" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		writeJSON(w, map[string]string{"url": imageURL})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	if imageURL == "" {
-		expires = time.Now().Add(5 * time.Minute)
+		http.Error(w, "profile picture unavailable", http.StatusNotFound)
+		return
 	}
-	a.avatarMu.Lock()
-	if a.avatars == nil {
-		a.avatars = make(map[string]avatarInfo)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		http.Error(w, "cannot fetch profile picture", http.StatusBadGateway)
+		return
 	}
-	a.avatars[login] = avatarInfo{url: imageURL, expires: expires}
-	a.avatarMu.Unlock()
-	writeJSON(w, map[string]string{"url": imageURL})
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Do(request)
+	if err != nil {
+		http.Error(w, "cannot fetch profile picture", http.StatusBadGateway)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		http.Error(w, "cannot fetch profile picture", http.StatusBadGateway)
+		return
+	}
+	const maxAvatarBytes = 2 << 20
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxAvatarBytes+1))
+	if err != nil || len(data) > maxAvatarBytes {
+		http.Error(w, "profile picture is unavailable", http.StatusBadGateway)
+		return
+	}
+	contentType := http.DetectContentType(data)
+	switch contentType {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+	default:
+		http.Error(w, "profile picture is not an image", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Write(data)
 }
 
 func profileImageURL(page []byte) string {
