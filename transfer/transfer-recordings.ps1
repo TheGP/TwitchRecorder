@@ -31,6 +31,58 @@ function Get-RemoteHash([string]$Name) {
     return $Matches[1].ToLowerInvariant()
 }
 
+function Get-RemoteFileType([string]$Name) {
+    if ($Name -notmatch '^[a-zA-Z0-9_.-]+$') {
+        throw "Invalid remote filename: $Name"
+    }
+    $type = @(Invoke-Remote "find $RemoteDir -maxdepth 1 -name '$Name' -printf '%y\n'") | Select-Object -First 1
+    if (-not $type) { return $null }
+    return $type
+}
+
+function Get-OptionalRemoteHash([string]$Name) {
+    $type = Get-RemoteFileType $Name
+    if (-not $type) { return $null }
+    if ($type -ne 'f') {
+        throw "Remote sidecar is not a regular file: $Name"
+    }
+    return Get-RemoteHash $Name
+}
+
+function Test-RemoteFile([string]$Name) {
+    return $null -ne (Get-RemoteFileType $Name)
+}
+
+function Copy-VerifiedFile([string]$Name, [string]$RemoteHash) {
+    $finalPath = Join-Path $Destination $Name
+    if (Test-Path -LiteralPath $finalPath) {
+        $localHash = (Get-FileHash -LiteralPath $finalPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($localHash -ne $RemoteHash) {
+            throw "Local file differs; keeping server copy: $Name"
+        }
+    } else {
+        $temporaryPath = "$finalPath.download"
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+        $remoteSource = '{0}:{1}/{2}' -f $Remote, $RemoteDir.TrimEnd('/'), $Name
+        $copyOutput = & $scp -B -q -p -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes $remoteSource $temporaryPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "SCP failed for $Name`: $($copyOutput -join ' ')"
+        }
+        $localHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($localHash -ne $RemoteHash -or (Get-RemoteHash $Name) -ne $RemoteHash) {
+            throw "Checksum changed during transfer; keeping server copy: $Name"
+        }
+        [System.IO.File]::Move($temporaryPath, $finalPath)
+    }
+    if ((Get-RemoteHash $Name) -ne $localHash) {
+        throw "Checksum changed before removal; keeping server copy: $Name"
+    }
+    Invoke-Remote "bash /root/TwitchRecorder/delete-verified-recording.sh $Name $localHash" | Out-Null
+    Write-TransferLog "Transferred and removed server copy: $Name"
+}
+
 try {
     if ([string]::IsNullOrWhiteSpace($Destination)) {
         $configPath = Join-Path $PSScriptRoot 'transfer-config.json'
@@ -64,40 +116,22 @@ try {
                 if ($name -notmatch '^[a-z0-9_]+-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?\.ts$') {
                     throw "Unexpected recording filename: $name"
                 }
+                $chatName = $name -replace '\.ts$', '.chat.jsonl'
                 if ($DryRun) {
                     Write-TransferLog "Would transfer $name"
+                    if (Get-OptionalRemoteHash $chatName) {
+                        Write-TransferLog "Would transfer $chatName"
+                    }
                     continue
                 }
 
-                $remoteHash = Get-RemoteHash $name
-                $finalPath = Join-Path $Destination $name
-                if (Test-Path -LiteralPath $finalPath) {
-                    $localHash = (Get-FileHash -LiteralPath $finalPath -Algorithm SHA256).Hash.ToLowerInvariant()
-                    if ($localHash -ne $remoteHash) {
-                        throw "Local file differs; keeping server copy: $name"
-                    }
-                } else {
-                    $temporaryPath = "$finalPath.download"
-                    if (Test-Path -LiteralPath $temporaryPath) {
-                        Remove-Item -LiteralPath $temporaryPath -Force
-                    }
-                    $remoteSource = '{0}:{1}/{2}' -f $Remote, $RemoteDir.TrimEnd('/'), $name
-                    $copyOutput = & $scp -B -q -p -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes $remoteSource $temporaryPath 2>&1
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "SCP failed for $name`: $($copyOutput -join ' ')"
-                    }
-                    $localHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
-                    if ($localHash -ne $remoteHash -or (Get-RemoteHash $name) -ne $remoteHash) {
-                        throw "Checksum changed during transfer; keeping server copy: $name"
-                    }
-                    [System.IO.File]::Move($temporaryPath, $finalPath)
+                $chatHash = Get-OptionalRemoteHash $chatName
+                if ($chatHash) {
+                    Copy-VerifiedFile $chatName $chatHash
+                } elseif (Test-RemoteFile "$chatName.part") {
+                    throw "Chat recording is still being finalized; deferring $name"
                 }
-
-                if ((Get-RemoteHash $name) -ne $localHash) {
-                    throw "Checksum changed before removal; keeping server copy: $name"
-                }
-                Invoke-Remote "bash /root/TwitchRecorder/delete-verified-recording.sh $name $localHash" | Out-Null
-                Write-TransferLog "Transferred and removed server copy: $name"
+                Copy-VerifiedFile $name (Get-RemoteHash $name)
             } catch {
                 $failed = $true
                 Write-TransferLog "ERROR: $($_.Exception.Message)"

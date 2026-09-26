@@ -134,6 +134,37 @@ func TestProgressPersistsUntilWatched(t *testing.T) {
 	}
 }
 
+func TestDeleteRecordingAlsoDeletesChatSidecar(t *testing.T) {
+	dir := t.TempDir()
+	name := "alpha-2026-09-21.ts"
+	chatName := "alpha-2026-09-21.chat.jsonl"
+	for _, path := range []string{filepath.Join(dir, name), filepath.Join(dir, chatName)} {
+		if err := os.WriteFile(path, []byte("sample"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := loadWatched(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverApp := &app{dir: dir, store: store}
+	mux, err := serverApp.routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodDelete, "/api/recordings/"+name, nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete recording: %d %s", response.Code, response.Body.String())
+	}
+	for _, path := range []string{filepath.Join(dir, name), filepath.Join(dir, chatName)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("deleted file still exists: %s (%v)", path, err)
+		}
+	}
+}
+
 func TestProfileImageURL(t *testing.T) {
 	const want = "https://static-cdn.jtvnw.net/jtv_user_pictures/example-profile_image-300x300.png"
 	for _, test := range []struct {

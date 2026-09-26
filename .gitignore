@@ -13,6 +13,8 @@ node_modules/
 /*.ts
 /*.mp4
 /*.mkv
+/*.chat.jsonl
+/*.chat.jsonl.part
 /*.log
 /*.lock
 twitch-recorder

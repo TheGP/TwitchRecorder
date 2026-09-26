@@ -8,7 +8,7 @@ fi
 
 filename=$1
 expected_hash=$2
-if [[ ! $filename =~ ^[a-z0-9_]+-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?\.ts$ ]] ||
+if [[ ! $filename =~ ^[a-z0-9_]+-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?\.(ts|chat\.jsonl)$ ]] ||
    [[ ! $expected_hash =~ ^[a-f0-9]{64}$ ]]; then
   echo "Invalid filename or checksum" >&2
   exit 2

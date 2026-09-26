@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -34,6 +35,7 @@ type config struct {
 	token        string
 	telegramBot  string
 	telegramChat string
+	chatToken    string
 	channels     []channelConfig
 	outputDir    string
 	pollInterval time.Duration
@@ -41,7 +43,17 @@ type config struct {
 }
 
 func main() {
-	if err := run(); err != nil {
+	chatTest := flag.String("chat-test", "", "record one Twitch channel's chat for a bounded local test")
+	chatTestDuration := flag.Duration("chat-test-duration", time.Minute, "duration for -chat-test")
+	chatTestOutput := flag.String("chat-test-output", "", "output .chat.jsonl path for -chat-test")
+	flag.Parse()
+	var err error
+	if *chatTest != "" {
+		err = runChatTest(*chatTest, *chatTestDuration, *chatTestOutput)
+	} else {
+		err = run()
+	}
+	if err != nil {
 		log.Fatal(err)
 	}
 }
@@ -84,6 +96,10 @@ func run() error {
 	if !strings.EqualFold(login, config.botLogin) {
 		return fmt.Errorf("BOT_OAUTH belongs to %q, not BOT_LOGIN %q", login, config.botLogin)
 	}
+	chatIdentity, err := validateChatToken(ctx, client, config.chatToken)
+	if err != nil {
+		return fmt.Errorf("validate CHAT_OAUTH: %w", err)
+	}
 	log.Printf("Monitoring %d channels every %s; recordings go to %s", len(config.channels), config.pollInterval, config.outputDir)
 	recordings := newRecordingState()
 	var monitors sync.WaitGroup
@@ -96,7 +112,7 @@ func run() error {
 		monitors.Add(1)
 		go func(channel channelConfig) {
 			defer monitors.Done()
-			monitorChannel(ctx, client, clientID, config, channel, recordings)
+			monitorChannel(ctx, client, clientID, chatIdentity, config, channel, recordings)
 		}(channel)
 	}
 	envTicker := time.NewTicker(5 * time.Second)
@@ -139,11 +155,14 @@ func run() error {
 			} else if !strings.EqualFold(validatedLogin, config.botLogin) {
 				log.Printf("Token login changed to %q; update BOT_OAUTH", validatedLogin)
 			}
+			if _, err := validateChatToken(ctx, client, config.chatToken); err != nil {
+				log.Printf("Chat token validation failed: %v", err)
+			}
 		}
 	}
 }
 
-func monitorChannel(ctx context.Context, client *http.Client, clientID string, config config, channel channelConfig, recordings *recordingState) {
+func monitorChannel(ctx context.Context, client *http.Client, clientID string, chatIdentity chatIdentity, config config, channel channelConfig, recordings *recordingState) {
 	log.Printf("Monitoring %s at %s", channel.login, channel.quality)
 	for ctx.Err() == nil {
 		streamID, isLive, err := getStream(ctx, client, config.token, clientID, channel.login)
@@ -157,16 +176,35 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 				log.Printf("Cannot choose recording filename for %s: %v", channel.login, err)
 			} else if recordings.begin() {
 				log.Printf("%s stream %s is live; recording %s to %s", channel.login, streamID, channel.quality, recording.part)
+				chat := chatRecordingFor(recording)
+				chatCtx, stopChat := context.WithCancel(ctx)
+				chatResult := make(chan chatCaptureResult, 1)
+				go func() {
+					count, err := recordChat(chatCtx, chatIdentity, channel.login, chat.part)
+					chatResult <- chatCaptureResult{count: count, err: err}
+				}()
 				command := exec.CommandContext(ctx, config.streamlink, "--output", recording.part, "https://www.twitch.tv/"+channel.login, channel.quality)
 				command.Stdout = os.Stdout
 				command.Stderr = os.Stderr
 				if err := command.Run(); err != nil && ctx.Err() == nil {
 					log.Printf("Streamlink exited for %s: %v", channel.login, err)
 				}
+				stopChat()
+				chatCapture := <-chatResult
+				if chatCapture.err != nil {
+					log.Printf("Chat capture for %s was partial: %v", channel.login, chatCapture.err)
+				}
 				if completed, err := completeRecording(recording); err != nil {
 					log.Printf("Cannot finalize recording for %s: %v", channel.login, err)
 				} else if completed {
+					if err := completeChatRecording(chat); err != nil {
+						log.Printf("Cannot finalize chat recording for %s: %v", channel.login, err)
+					} else {
+						log.Printf("Chat recording ready: %s (%d messages)", chat.final, chatCapture.count)
+					}
 					log.Printf("Recording ready: %s", recording.final)
+				} else if err := discardChatRecordingWithoutMedia(chat); err != nil {
+					log.Printf("Cannot discard chat recording without media for %s: %v", channel.login, err)
 				}
 				recordings.end()
 				log.Printf("Recording stopped for %s stream %s", channel.login, streamID)
@@ -186,6 +224,7 @@ func readConfig() (config, error) {
 		token:        strings.TrimPrefix(strings.TrimSpace(os.Getenv("BOT_OAUTH")), "oauth:"),
 		telegramBot:  strings.TrimPrefix(strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_BOT_TOKEN")), "bot"),
 		telegramChat: strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_CHAT_ID")),
+		chatToken:    strings.TrimPrefix(strings.TrimSpace(os.Getenv("CHAT_OAUTH")), "oauth:"),
 		outputDir:    strings.TrimSpace(os.Getenv("OUTPUT_DIR")),
 		pollInterval: 30 * time.Second,
 	}
@@ -194,6 +233,9 @@ func readConfig() (config, error) {
 	}
 	if config.telegramBot == "" || config.telegramChat == "" {
 		return config, errors.New("DEVELOPER_TELEGRAM_BOT_TOKEN and DEVELOPER_TELEGRAM_CHAT_ID are required for disk alerts")
+	}
+	if config.chatToken == "" {
+		return config, errors.New("CHAT_OAUTH is required in .env for chat recording")
 	}
 	if !validTelegramToken.MatchString(config.telegramBot) {
 		return config, errors.New("DEVELOPER_TELEGRAM_BOT_TOKEN has an invalid format")

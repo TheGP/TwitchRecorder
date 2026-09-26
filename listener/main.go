@@ -260,6 +260,18 @@ func (a *app) deleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot delete recording", http.StatusInternalServerError)
 		return
 	}
+	chatPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".chat.jsonl"
+	if info, err := os.Lstat(chatPath); err == nil {
+		if info.Mode().IsRegular() {
+			if err := os.Remove(chatPath); err != nil {
+				log.Printf("Deleted %s but could not delete its chat sidecar: %v", name, err)
+			}
+		} else {
+			log.Printf("Deleted %s but kept non-regular chat sidecar %s", name, chatPath)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		log.Printf("Deleted %s but could not inspect its chat sidecar: %v", name, err)
+	}
 	a.metaMu.Lock()
 	delete(a.meta, name)
 	a.metaMu.Unlock()
