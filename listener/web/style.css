@@ -175,6 +175,16 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   border-color: #7c4547; background: #412629; color: #ffb5b3;
 }
 .row-delete svg { width: 17px; height: 17px; }
+.favorite-button {
+  flex: 0 0 32px; width: 32px; height: 32px; padding: 0;
+  display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: #81939e; font-size: 23px; line-height: 1;
+}
+.favorite-button[aria-pressed="true"] { color: #f5cc71; }
+.favorite-button:hover:not(:disabled), .favorite-button:focus-visible {
+  border-color: #71613f; background: #352e20; color: #ffe1a0;
+}
+.row-delete:disabled { opacity: .35; cursor: default; }
 .empty-list { color: #8ea0ae; padding: 28px 12px; text-align: center; }
 
 .player-panel {
@@ -197,6 +207,7 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .player-panel.is-empty .player-control-row,
 .player-panel.is-empty .watched-toggle,
 .player-panel.is-empty .chat-toggle { display: none; }
+.player-panel.is-empty .favorite-button { display: none; }
 .artwork {
   position: relative; width: 100%; aspect-ratio: 16 / 9;
   overflow: hidden;

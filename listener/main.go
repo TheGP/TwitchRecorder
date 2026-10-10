@@ -39,6 +39,7 @@ type recording struct {
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
 	Watched  bool      `json:"watched"`
+	Favorite bool      `json:"favorite"`
 	Progress float64   `json:"progress,omitempty"`
 	HasChat  bool      `json:"has_chat"`
 }
@@ -64,8 +65,9 @@ var imageTag = regexp.MustCompile(`(?i)<meta\b[^>]*\b(?:property|name)=["'](?:og
 var imageContent = regexp.MustCompile(`(?i)\bcontent=["']([^"']+)["']`)
 
 type watchedFile struct {
-	Watched  map[string]bool    `json:"watched"`
-	Progress map[string]float64 `json:"progress,omitempty"`
+	Watched   map[string]bool    `json:"watched"`
+	Progress  map[string]float64 `json:"progress,omitempty"`
+	Favorites map[string]bool    `json:"favorites,omitempty"`
 }
 
 type watchedStore struct {
@@ -75,14 +77,15 @@ type watchedStore struct {
 }
 
 type app struct {
-	dir      string
-	ffmpeg   string
-	ffprobe  string
-	store    *watchedStore
-	metaMu   sync.Mutex
-	meta     map[string]cachedInfo
-	avatarMu sync.Mutex
-	avatars  map[string]avatarInfo
+	recordingMu sync.Mutex // Serializes favorite changes with deletion.
+	dir         string
+	ffmpeg      string
+	ffprobe     string
+	store       *watchedStore
+	metaMu      sync.Mutex
+	meta        map[string]cachedInfo
+	avatarMu    sync.Mutex
+	avatars     map[string]avatarInfo
 }
 
 func main() {
@@ -178,6 +181,7 @@ func (a *app) routes() (http.Handler, error) {
 	mux.HandleFunc("GET /api/recordings", a.listHandler)
 	mux.HandleFunc("PATCH /api/watched", a.watchedHandler)
 	mux.HandleFunc("PATCH /api/progress", a.progressHandler)
+	mux.HandleFunc("PATCH /api/favorites", a.favoriteHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/info", a.infoHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/chat", a.chatHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/stream", a.streamHandler)
@@ -204,7 +208,7 @@ func (a *app) files() ([]recording, error) {
 		watched, progress := a.store.status(name)
 		chatInfo, chatErr := os.Lstat(chatPath(filepath.Join(a.dir, name)))
 		hasChat := chatErr == nil && chatInfo.Mode().IsRegular()
-		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Progress: progress, HasChat: hasChat})
+		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Favorite: a.store.isFavorite(name), Progress: progress, HasChat: hasChat})
 	}
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].Modified.Equal(files[j].Modified) {
@@ -253,10 +257,16 @@ func (a *app) listHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) deleteHandler(w http.ResponseWriter, r *http.Request) {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	name := r.PathValue("name")
 	path, _, err := a.file(name)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if a.store.isFavorite(name) {
+		http.Error(w, "favorite recordings are protected; remove the star before deleting", http.StatusConflict)
 		return
 	}
 	if err := os.Remove(path); err != nil {
@@ -359,6 +369,30 @@ func (a *app) watchedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]int{"updated": len(names)})
+}
+
+func (a *app) favoriteHandler(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Name     string `json:"name"`
+		Favorite *bool  `json:"favorite"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil || request.Favorite == nil {
+		http.Error(w, "invalid favorite request", http.StatusBadRequest)
+		return
+	}
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
+	if _, _, err := a.file(request.Name); err != nil {
+		http.Error(w, "recording not found", http.StatusBadRequest)
+		return
+	}
+	if err := a.store.setFavorite(request.Name, *request.Favorite); err != nil {
+		http.Error(w, "cannot save favorite", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"saved": true})
 }
 
 func (a *app) progressHandler(w http.ResponseWriter, r *http.Request) {
@@ -620,7 +654,7 @@ func (a *app) streamHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loadWatched(path string) (*watchedStore, error) {
-	store := &watchedStore{path: path, data: watchedFile{Watched: make(map[string]bool), Progress: make(map[string]float64)}}
+	store := &watchedStore{path: path, data: watchedFile{Watched: make(map[string]bool), Progress: make(map[string]float64), Favorites: make(map[string]bool)}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return store, nil
@@ -637,7 +671,31 @@ func loadWatched(path string) (*watchedStore, error) {
 	if store.data.Progress == nil {
 		store.data.Progress = make(map[string]float64)
 	}
+	if store.data.Favorites == nil {
+		store.data.Favorites = make(map[string]bool)
+	}
 	return store, nil
+}
+
+func (s *watchedStore) isFavorite(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.Favorites[name]
+}
+
+func (s *watchedStore) setFavorite(name string, favorite bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	favorites := make(map[string]bool, len(s.data.Favorites)+1)
+	for key, value := range s.data.Favorites {
+		favorites[key] = value
+	}
+	if favorite {
+		favorites[name] = true
+	} else {
+		delete(favorites, name)
+	}
+	return s.save(watchedFile{Watched: s.data.Watched, Progress: s.data.Progress, Favorites: favorites})
 }
 
 func (s *watchedStore) isWatched(name string) bool {
@@ -670,7 +728,7 @@ func (s *watchedStore) set(names []string, watched bool) error {
 			delete(next, name)
 		}
 	}
-	return s.save(watchedFile{Watched: next, Progress: progress})
+	return s.save(watchedFile{Watched: next, Progress: progress, Favorites: s.data.Favorites})
 }
 
 func (s *watchedStore) setProgress(name string, seconds float64) error {
@@ -688,7 +746,7 @@ func (s *watchedStore) setProgress(name string, seconds float64) error {
 	} else {
 		progress[name] = seconds
 	}
-	return s.save(watchedFile{Watched: s.data.Watched, Progress: progress})
+	return s.save(watchedFile{Watched: s.data.Watched, Progress: progress, Favorites: s.data.Favorites})
 }
 
 func (s *watchedStore) remove(name string) error {
@@ -709,7 +767,7 @@ func (s *watchedStore) remove(name string) error {
 			progress[key] = value
 		}
 	}
-	return s.save(watchedFile{Watched: checked, Progress: progress})
+	return s.save(watchedFile{Watched: checked, Progress: progress, Favorites: s.data.Favorites})
 }
 
 // save is called with the store mutex held.

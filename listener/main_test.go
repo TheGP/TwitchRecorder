@@ -137,6 +137,127 @@ func TestProgressPersistsUntilWatched(t *testing.T) {
 	}
 }
 
+func TestFavoritesPersistAndProtectRecordingAndChat(t *testing.T) {
+	dir := t.TempDir()
+	name := "alpha-2026-09-21.ts"
+	path := filepath.Join(dir, name)
+	for _, file := range []string{path, chatPath(path)} {
+		if err := os.WriteFile(file, []byte("sample"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	storePath := filepath.Join(t.TempDir(), "state.json")
+	// Existing state files must keep watched status and progress when upgraded.
+	if err := os.WriteFile(storePath, []byte(`{"watched":{"beta-2026-09-21.ts":true},"progress":{"alpha-2026-09-21.ts":65.5}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := loadWatched(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverApp := &app{dir: dir, store: store}
+	mux, err := serverApp.routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPatch, "/api/favorites", strings.NewReader(`{"name":"alpha-2026-09-21.ts","favorite":true}`))
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("favorite: %d %s", response.Code, response.Body.String())
+	}
+	if !store.isWatched("beta-2026-09-21.ts") {
+		t.Fatal("favorite update lost existing watched status")
+	}
+	if _, progress := store.status(name); progress != 65.5 {
+		t.Fatalf("favorite update lost progress: %v", progress)
+	}
+	if err := store.setProgress(name, 70); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.set([]string{name}, true); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := loadWatched(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverApp.store = reloaded
+	files, err := serverApp.files()
+	if err != nil || len(files) != 1 || !files[0].Favorite || !files[0].Watched {
+		t.Fatalf("favorite did not survive progress, watched update, and reload: %+v (%v)", files, err)
+	}
+	request = httptest.NewRequest(http.MethodDelete, "/api/recordings/"+name, nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("favorite delete should be blocked: %d %s", response.Code, response.Body.String())
+	}
+	for _, file := range []string{path, chatPath(path)} {
+		if data, err := os.ReadFile(file); err != nil || string(data) != "sample" {
+			t.Fatalf("protected file changed: %s (%v)", file, err)
+		}
+	}
+	if !reloaded.isFavorite(name) || !reloaded.isWatched(name) {
+		t.Fatal("blocked deletion changed saved status")
+	}
+	request = httptest.NewRequest(http.MethodPatch, "/api/favorites", strings.NewReader(`{"name":"alpha-2026-09-21.ts","favorite":false}`))
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("remove favorite: %d %s", response.Code, response.Body.String())
+	}
+	reloaded, err = loadWatched(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.isFavorite(name) || !reloaded.isWatched(name) {
+		t.Fatal("unfavorite did not persist or lost watched status")
+	}
+	request = httptest.NewRequest(http.MethodDelete, "/api/recordings/"+name, nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unstarred recording should allow deletion: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestFavoriteValidationAndSaveFailure(t *testing.T) {
+	dir := t.TempDir()
+	name := "alpha.ts"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("sample"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := loadWatched(filepath.Join(t.TempDir(), "missing", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverApp := &app{dir: dir, store: store}
+	mux, err := serverApp.routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{
+		`{"name":"../alpha.ts","favorite":true}`,
+		`{"name":"missing.ts","favorite":true}`,
+		`{"name":"alpha.ts"}`,
+		`{"name":"alpha.ts","favorite":null}`,
+		`{"name":"alpha.ts","favorite":"true"}`,
+		`{"name":"alpha.ts","favorite":true,"other":1}`,
+	} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodPatch, "/api/favorites", strings.NewReader(body)))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid request %s: got %d", body, response.Code)
+		}
+	}
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPatch, "/api/favorites", strings.NewReader(`{"name":"alpha.ts","favorite":true}`)))
+	if response.Code != http.StatusInternalServerError || store.isFavorite(name) {
+		t.Fatalf("failed save must not claim protection: %d", response.Code)
+	}
+}
+
 func TestDeleteRecordingAlsoDeletesChatSidecar(t *testing.T) {
 	dir := t.TempDir()
 	name := "alpha-2026-09-21.ts"

@@ -56,6 +56,8 @@ Requires Go, FFmpeg, and FFprobe on the Windows user's `PATH`. FFmpeg can be ins
 Audio recordings show the channel's Twitch profile picture when its public page provides one. The listener caches the image URL for a day and shows a music icon if the picture is unavailable.
 Historical `nyx-*.ts` audio recordings use the `n_y_x_official` picture.
 
+Click the star in the player or a recording row to favorite it. Favorites are saved in `listener/state.json`, remain starred after being marked watched, and appear in the Favorites filter. The listener blocks deletion of starred recordings and their chat sidecars until you remove the star. This protection applies to deletion through the listener; other programs can still remove files from the media folder.
+
 Run `listener/install.ps1` from PowerShell. It builds the listener, installs the `TwitchListener` scheduled task for this user's logon, and starts it immediately. Open [http://127.0.0.1:8787](http://127.0.0.1:8787) and pin that tab if desired. The task runs while this Windows user is logged in and restarts after failures. Run the install script again after code changes. Logs are in `listener/listener.log`.
 
 Run `go test ./...` from the repository root to test both Go apps.

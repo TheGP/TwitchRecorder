@@ -38,6 +38,7 @@
             <div class="player-title-row">
               <h2 id="player-title">Pick a recording</h2>
               <div class="player-title-actions">
+                <button id="player-favorite" class="favorite-button" aria-label="Add favorite" aria-pressed="false" title="Add favorite" disabled>☆</button>
                 <button id="chat-toggle" class="chat-toggle" aria-expanded="false" aria-controls="chat-panel" disabled>Chat</button>
                 <button id="player-watched" class="watched-toggle" disabled>Mark watched</button>
               </div>
@@ -102,6 +103,7 @@
           <button class="filter active" data-filter="all" aria-pressed="true">All</button>
           <button class="filter" data-filter="unwatched" aria-pressed="false">Unwatched</button>
           <button class="filter" data-filter="watched" aria-pressed="false">Watched</button>
+          <button class="filter" data-filter="favorites" aria-pressed="false">★ Favorites</button>
         </div>
 
         <div class="bulk-bar">

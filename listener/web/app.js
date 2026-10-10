@@ -4,7 +4,7 @@ const el = Object.fromEntries([
   "unmark-selected", "mark-all", "list", "list-empty",
   "player-panel", "artwork", "avatar", "avatar-fallback", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "play", "volume",
-  "fullscreen", "player-watched", "notice", "chat-toggle", "chat-panel",
+  "fullscreen", "player-watched", "player-favorite", "notice", "chat-toggle", "chat-panel",
   "chat-messages", "chat-empty", "chat-status"
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -13,7 +13,7 @@ let videoClickTimer;
 let seekReleaseTimer;
 let avatarRetryTimer;
 const view = {
-  recordings: [], selected: new Set(), filter: "all", current: null,
+  recordings: [], selected: new Set(), favoritePending: new Set(), filter: "all", current: null,
   info: null, media: null, start: 0, seeking: false, loading: false,
   playing: false, requestedPlay: false, retryCount: 0, streamVersion: 0,
   leaving: false, lastProgressSave: 0, lastLocalSave: 0,
@@ -86,6 +86,7 @@ function visibleRecordings() {
   const files = view.recordings.filter((file) => {
     if (view.filter === "watched" && !file.watched) return false;
     if (view.filter === "unwatched" && file.watched) return false;
+    if (view.filter === "favorites" && !file.favorite) return false;
     return file.name.toLowerCase().includes(query);
   });
   if (el.sort.value === "name") {
@@ -150,10 +151,24 @@ function renderList() {
     dot.title = file.watched ? "" : "Unwatched";
     dot.setAttribute("aria-hidden", "true");
     row.append(dot, checkbox, icon, main, recordingDate);
+    const favoriteButton = document.createElement("button");
+    favoriteButton.type = "button";
+    favoriteButton.className = "favorite-button row-favorite";
+    favoriteButton.textContent = file.favorite ? "★" : "☆";
+    favoriteButton.title = file.favorite ? "Favorite: protected from deletion. Click to remove star." : "Add favorite and protect from deletion";
+    favoriteButton.setAttribute("aria-label", `${file.favorite ? "Remove" : "Add"} favorite ${file.name}`);
+    favoriteButton.setAttribute("aria-pressed", String(Boolean(file.favorite)));
+    favoriteButton.disabled = view.favoritePending.has(file.name);
+    favoriteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setFavorite(file.name, !file.favorite);
+    });
+    row.append(favoriteButton);
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "row-delete";
-    deleteButton.title = `Delete ${file.name}`;
+    deleteButton.title = file.favorite ? "Remove the favorite star before deleting" : `Delete ${file.name}`;
+    deleteButton.disabled = Boolean(file.favorite) || view.favoritePending.has(file.name);
     deleteButton.setAttribute("aria-label", `Delete ${file.name}`);
     deleteButton.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
     deleteButton.addEventListener("click", async (event) => {
@@ -162,7 +177,7 @@ function renderList() {
       try {
         await deleteRecording(file.name);
       } finally {
-        deleteButton.disabled = false;
+        deleteButton.disabled = Boolean(file.favorite) || view.favoritePending.has(file.name);
       }
     });
     row.append(deleteButton);
@@ -200,6 +215,7 @@ async function refresh() {
     renderStats();
     renderList();
     updateWatchedButton();
+    updateFavoriteButton();
     updateChatButton();
     notify("");
   } catch (error) {
@@ -221,7 +237,35 @@ async function setWatched(names, watched, all = false) {
   }
 }
 
+async function setFavorite(name, favorite) {
+  if (view.favoritePending.has(name)) return;
+  view.favoritePending.add(name);
+  renderList();
+  updateFavoriteButton();
+  try {
+    await api("/api/favorites", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, favorite })
+    });
+    const file = view.recordings.find((item) => item.name === name);
+    if (file) file.favorite = favorite;
+    await refresh();
+  } catch (error) {
+    notify(`Could not save favorite: ${error.message}`);
+  } finally {
+    view.favoritePending.delete(name);
+    renderList();
+    updateFavoriteButton();
+  }
+}
+
 async function deleteRecording(name) {
+  const file = view.recordings.find((item) => item.name === name);
+  if (file?.favorite || view.favoritePending.has(name)) {
+    notify("Favorite recordings are protected. Remove the star before deleting.");
+    return;
+  }
   if (!window.confirm(`Permanently delete ${name} from ${el.folder.textContent}?`)) return;
   const wasCurrent = view.current === name;
   const position = view.start + (view.media?.currentTime || 0);
@@ -249,7 +293,7 @@ async function deleteRecording(name) {
       el.play.textContent = "▶";
       el.play.setAttribute("aria-label", "Play");
       el.fullscreen.hidden = true;
-      for (const id of ["seek", "play", "player-watched", "chat-toggle"]) el[id].disabled = true;
+      for (const id of ["seek", "play", "player-watched", "player-favorite", "chat-toggle"]) el[id].disabled = true;
       saveLocalState(true, 0);
     }
     await refresh();
@@ -411,6 +455,7 @@ async function openRecording(name, options = {}) {
     : name;
   el["player-subtitle"].textContent = date ? name : "Loading media details";
   renderList();
+  updateFavoriteButton();
   try {
     const info = await api(`/api/recordings/${encodeURIComponent(name)}/info`);
     if (view.current !== name) return;
@@ -451,6 +496,17 @@ function updateTimeline() {
 function updateWatchedButton() {
   const file = view.recordings.find((item) => item.name === view.current);
   el["player-watched"].textContent = file?.watched ? "Mark unwatched" : "Mark watched";
+}
+
+function updateFavoriteButton() {
+  const file = view.recordings.find((item) => item.name === view.current);
+  const favorite = Boolean(file?.favorite);
+  const button = el["player-favorite"];
+  button.textContent = favorite ? "★" : "☆";
+  button.setAttribute("aria-pressed", String(favorite));
+  button.setAttribute("aria-label", favorite ? "Remove favorite" : "Add favorite");
+  button.title = favorite ? "Favorite: protected from deletion. Click to remove star." : "Add favorite and protect from deletion";
+  button.disabled = !file || view.favoritePending.has(file.name);
 }
 
 function updateChatButton() {
@@ -623,6 +679,10 @@ el["player-watched"].addEventListener("click", () => {
   if (file) setWatched([file.name], !file.watched);
 });
 el["chat-toggle"].addEventListener("click", toggleChat);
+el["player-favorite"].addEventListener("click", () => {
+  const file = view.recordings.find((item) => item.name === view.current);
+  if (file) setFavorite(file.name, !file.favorite);
+});
 function togglePlayback() {
   const media = view.media;
   if (!media) return;
@@ -720,7 +780,7 @@ async function initialize() {
     if (Number.isFinite(saved.volume) && saved.volume >= 0 && saved.volume <= 1) el.volume.value = saved.volume;
     if (typeof saved.search === "string") el.search.value = saved.search;
     if ([...el.sort.options].some((option) => option.value === saved.sort)) el.sort.value = saved.sort;
-    if (["all", "watched", "unwatched"].includes(saved.filter)) {
+    if (["all", "watched", "unwatched", "favorites"].includes(saved.filter)) {
       view.filter = saved.filter;
       document.querySelectorAll(".filter").forEach((button) => {
         button.classList.toggle("active", button.dataset.filter === view.filter);
