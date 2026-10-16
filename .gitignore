@@ -8,6 +8,8 @@
 /listener/.state-*.json
 /listener/*.log
 /listener/*.exe
+/listener/twitch-listener
+/listener/twitch-listener.new
 recordings/
 node_modules/
 /*.ts

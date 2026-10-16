@@ -1,6 +1,6 @@
 param(
-    [string]$Remote = 'root@reviewer',
-    [string]$RemoteDir = '/root/TwitchRecorder/recordings',
+    [string]$Remote,
+    [string]$RemoteDir,
     [string]$Destination,
     [switch]$DryRun
 )
@@ -84,16 +84,27 @@ function Copy-VerifiedFile([string]$Name, [string]$RemoteHash) {
 }
 
 try {
+    $configPath = Join-Path $PSScriptRoot 'transfer-config.json'
+    $config = $null
+    if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    }
     if ([string]::IsNullOrWhiteSpace($Destination)) {
-        $configPath = Join-Path $PSScriptRoot 'transfer-config.json'
-        if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        if (-not $config) {
             throw "Transfer config is missing: $configPath. Copy transfer-config.example.json to transfer-config.json and set destination."
         }
-        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
         if ($config.destination -isnot [string] -or [string]::IsNullOrWhiteSpace($config.destination)) {
             throw "Transfer config must contain a nonempty destination: $configPath"
         }
         $Destination = $config.destination
+    }
+    if ([string]::IsNullOrWhiteSpace($Remote)) {
+        $Remote = 'root@reviewer'
+        if ($config -and $config.remote) { $Remote = $config.remote }
+    }
+    if ([string]::IsNullOrWhiteSpace($RemoteDir)) {
+        $RemoteDir = '/root/TwitchRecorder/recordings'
+        if ($config -and $config.remote_dir) { $RemoteDir = $config.remote_dir }
     }
     if ($Remote -notmatch '^[a-zA-Z0-9_.@-]+$' -or
         $RemoteDir -notmatch '^/[a-zA-Z0-9_./-]+$' -or
@@ -103,8 +114,8 @@ try {
     if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
         throw "Destination is unavailable: $Destination"
     }
-    $ssh = (Get-Command ssh.exe -ErrorAction Stop).Source
-    $scp = (Get-Command scp.exe -ErrorAction Stop).Source
+    $ssh = (Get-Command ssh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $scp = (Get-Command scp -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $lock = [System.IO.File]::Open((Join-Path $PSScriptRoot 'transfer.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
     try {
         $names = @(Invoke-Remote "find $RemoteDir -maxdepth 1 -type f -name '*.ts' -printf '%f\n'")

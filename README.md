@@ -3,8 +3,8 @@
 One repository with three independent parts:
 
 - `recorder/` — Go app that checks Twitch and records live channels on the Linux server.
-- `transfer/` — Windows task that copies completed recordings to a local folder.
-- `listener/` — local Windows web app for playing files and tracking watched status.
+- `transfer/` — Windows/macOS task that copies completed recordings to a local folder.
+- `listener/` — local Windows/macOS web app for playing files and tracking watched status.
 
 The root `.env`, `recordings/`, `deploy.sh`, and `package.json` remain at the repository root so the running server's PM2 working directory and recording paths do not change.
 
@@ -61,3 +61,51 @@ Click the star in the player or a recording row to favorite it. Favorites are sa
 Run `listener/install.ps1` from PowerShell. It builds the listener, installs the `TwitchListener` scheduled task for this user's logon, and starts it immediately. Open [http://127.0.0.1:8787](http://127.0.0.1:8787) and pin that tab if desired. The task runs while this Windows user is logged in and restarts after failures. Run the install script again after code changes. Logs are in `listener/listener.log`.
 
 Run `go test ./...` from the repository root to test both Go apps.
+
+## macOS: automatic sync and player
+
+The Go player runs natively on Apple Silicon and Intel Macs. File sync uses the same PowerShell script on Windows and macOS, including SHA-256 checks, temporary downloads, chat sidecars, and protection against overlapping runs. PowerShell only runs during a sync; the player remains a Go process.
+
+Install the dependencies with Homebrew:
+
+```bash
+brew install go ffmpeg powershell
+```
+
+[PowerShell installation options](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-macos) are also available from Microsoft.
+
+Clone this repository on the Mac. Configure SSH key access to the recorder server, including the `reviewer` SSH alias on that Mac, or replace `root@reviewer` below with your server address. Connect manually once to verify its host key; automated transfers require a known host and passwordless SSH access.
+
+From the repository folder, as your normal logged-in user (without `sudo`):
+
+```bash
+ssh root@reviewer true
+pwsh -NoProfile -File ./macos/install.ps1 -Destination "$HOME/Music/Twitch" -Remote root@reviewer
+```
+
+Use a mounted external disk by passing a path such as `-Destination "/Volumes/Backup/DJ"`. The installer sets the same folder in `transfer/transfer-config.json` and `listener/config.json`. Without `-Destination`, it preserves the existing configured folder or defaults to `~/Music/Twitch`. Both config files remain ignored by Git. The transfer config also accepts `remote` and `remote_dir`; command-line overrides take precedence. When changing the folder later, rerun the installer with `-Destination` so both apps agree.
+
+The installer builds the player for the current Mac, verifies its health, and registers two per-user [launch agents](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html) in `~/Library/LaunchAgents`:
+
+- `com.twitchrecorder.listener`: starts at login and restarts after failure.
+- `com.twitchrecorder.transfer`: syncs immediately, at login, and every two hours while the Mac is awake and the user is logged in. It does not wake the computer. A sync already running is left alone when reinstalling; rerun the installer after it finishes.
+
+Open [http://127.0.0.1:8787](http://127.0.0.1:8787) in your browser. The same player features, including favorites, watched status, and saved progress, are available on both platforms. Each installation keeps its own `listener/state.json`; playback state is not synchronized between computers.
+
+Trigger a sync immediately, without interrupting an existing run:
+
+```bash
+launchctl kickstart "gui/$(id -u)/com.twitchrecorder.transfer"
+```
+
+Preview the files to transfer:
+
+```bash
+pwsh -NoProfile -File ./transfer/transfer-recordings.ps1 -DryRun
+```
+
+Check job status with `launchctl print "gui/$(id -u)/com.twitchrecorder.listener"` or the corresponding transfer label. Application logs remain in `listener/listener.log` and `transfer/transfer.log`; launch-agent output is captured in each folder's `launch-agent.stdout.log` and `launch-agent.stderr.log`. Keep the repository at the same path, or rerun the installer after moving it. macOS may ask for file access when using protected folders or removable disks.
+
+**The sync moves files off the server.** If Windows and macOS both sync, a recording normally goes to whichever computer downloads it first. This is not a mirror that puts every recording on both computers. Configure the same shared destination if both should read the same library.
+
+`go test ./...` also runs the transfer integration tests with simulated SSH/SCP and the launch-agent XML tests when PowerShell is available. No test connects to the recorder server.

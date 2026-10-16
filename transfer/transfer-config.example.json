@@ -1,3 +1,5 @@
 {
-  "destination": "F:\\DJ"
+  "destination": "F:\\DJ",
+  "remote": "root@reviewer",
+  "remote_dir": "/root/TwitchRecorder/recordings"
 }
