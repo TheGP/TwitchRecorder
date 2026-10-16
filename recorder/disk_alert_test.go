@@ -71,6 +71,65 @@ func TestDiskAlertRetriesFailedSend(t *testing.T) {
 	}
 }
 
+func TestCriticalDiskAlertAfterWarningAndRecovery(t *testing.T) {
+	var messages []string
+	alert := diskAlert{notify: func(_ context.Context, message string) error {
+		messages = append(messages, message)
+		return nil
+	}}
+	ctx := context.Background()
+	for _, free := range []uint64{900_000_000, 499_999_999, 0, 500_000_000, 499_999_999} {
+		if err := alert.check(ctx, free); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(messages) != 3 || !strings.Contains(messages[0], "below 1 GB") || !strings.Contains(messages[1], "New recordings are blocked below 500 MB") || !strings.Contains(messages[2], "New recordings are blocked below 500 MB") {
+		t.Fatalf("want warning, critical alert, then another critical alert after recovery; got %v", messages)
+	}
+}
+
+func TestCriticalDiskAlertRetriesAfterEarlierWarning(t *testing.T) {
+	attempts := 0
+	alert := diskAlert{notify: func(context.Context, string) error {
+		attempts++
+		if attempts == 2 {
+			return errors.New("temporary failure")
+		}
+		return nil
+	}}
+	ctx := context.Background()
+	if err := alert.check(ctx, 900_000_000); err != nil {
+		t.Fatal(err)
+	}
+	if err := alert.check(ctx, 0); err == nil || alert.criticalAlerted {
+		t.Fatal("failed critical warning must remain eligible for retry")
+	}
+	if err := alert.check(ctx, 0); err != nil || !alert.criticalAlerted || attempts != 3 {
+		t.Fatalf("critical warning not retried: attempts=%d, error=%v", attempts, err)
+	}
+}
+
+func TestRecordingSpaceGuard(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		free    uint64
+		err     error
+		blocked bool
+	}{
+		{name: "full", free: 0, blocked: true},
+		{name: "below minimum", free: 499_999_999, blocked: true},
+		{name: "exact minimum", free: 500_000_000},
+		{name: "above minimum", free: 500_000_001},
+		{name: "cannot determine space", err: errors.New("filesystem unavailable"), blocked: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := recordingSpaceError(test.free, test.err); (err != nil) != test.blocked {
+				t.Fatalf("free=%d: blocked=%v, error=%v", test.free, test.blocked, err)
+			}
+		})
+	}
+}
+
 func TestDiskFreeBytesForOutputDirectory(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		t.Skip("disk space checks are supported on Linux and Windows")

@@ -166,9 +166,12 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 	log.Printf("Monitoring %s at %s", channel.login, channel.quality)
 	for ctx.Err() == nil {
 		streamID, isLive, err := getStream(ctx, client, config.token, clientID, channel.login)
+		if err == nil && isLive {
+			err = recordingSpaceError(diskFreeBytes(config.outputDir))
+		}
 		if err != nil {
 			if ctx.Err() == nil {
-				log.Printf("Live check failed for %s: %v", channel.login, err)
+				log.Printf("Recording check failed for %s: %v", channel.login, err)
 			}
 		} else if isLive {
 			recording, err := nextRecordingPath(config.outputDir, channel.login, time.Now())
