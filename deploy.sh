@@ -30,9 +30,9 @@ go build -o twitch-recorder.new ./recorder
 mv -f twitch-recorder.new twitch-recorder
 
 if pm2 describe twitch-recorder >/dev/null 2>&1; then
-  pm2 restart twitch-recorder --update-env
+  pm2 restart twitch-recorder --update-env --kill-timeout 10000
 else
-  pm2 start ./twitch-recorder --name twitch-recorder --interpreter none --cwd "$PWD"
+  pm2 start ./twitch-recorder --name twitch-recorder --interpreter none --cwd "$PWD" --kill-timeout 10000
 fi
 pm2 save
 pm2 status twitch-recorder

@@ -24,7 +24,7 @@ func TestDiskAlertSendsOnceUntilRecovery(t *testing.T) {
 		host:      "test-host",
 		notify: func(_ context.Context, message string) error {
 			sent++
-			if !strings.Contains(message, "below 1 GB") || !strings.Contains(message, "test-host") {
+			if !strings.Contains(message, "below 1.5 GB") || !strings.Contains(message, "test-host") {
 				t.Fatalf("unexpected alert message: %q", message)
 			}
 			return nil
@@ -78,13 +78,32 @@ func TestCriticalDiskAlertAfterWarningAndRecovery(t *testing.T) {
 		return nil
 	}}
 	ctx := context.Background()
-	for _, free := range []uint64{900_000_000, 499_999_999, 0, 500_000_000, 499_999_999} {
+	for _, free := range []uint64{1_400_000_000, 999_999_999, 0, 1_000_000_000, 999_999_999} {
 		if err := alert.check(ctx, free); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(messages) != 3 || !strings.Contains(messages[0], "below 1 GB") || !strings.Contains(messages[1], "New recordings are blocked below 500 MB") || !strings.Contains(messages[2], "New recordings are blocked below 500 MB") {
+	if len(messages) != 3 || !strings.Contains(messages[0], "below 1.5 GB") || !strings.Contains(messages[1], "New recordings are blocked below 1 GB") || !strings.Contains(messages[2], "New recordings are blocked below 1 GB") {
 		t.Fatalf("want warning, critical alert, then another critical alert after recovery; got %v", messages)
+	}
+}
+
+func TestActiveRecordingSpaceGuard(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		free    uint64
+		blocked bool
+	}{
+		{name: "full", free: 0, blocked: true},
+		{name: "below active cutoff", free: 99_999_999, blocked: true},
+		{name: "exact active cutoff", free: 100_000_000},
+		{name: "below new recording cutoff", free: 999_999_999},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := activeRecordingSpaceError(test.free); (err != nil) != test.blocked {
+				t.Fatalf("free=%d: blocked=%v, error=%v", test.free, test.blocked, err)
+			}
+		})
 	}
 }
 
@@ -98,7 +117,7 @@ func TestCriticalDiskAlertRetriesAfterEarlierWarning(t *testing.T) {
 		return nil
 	}}
 	ctx := context.Background()
-	if err := alert.check(ctx, 900_000_000); err != nil {
+	if err := alert.check(ctx, 1_400_000_000); err != nil {
 		t.Fatal(err)
 	}
 	if err := alert.check(ctx, 0); err == nil || alert.criticalAlerted {
@@ -117,9 +136,9 @@ func TestRecordingSpaceGuard(t *testing.T) {
 		blocked bool
 	}{
 		{name: "full", free: 0, blocked: true},
-		{name: "below minimum", free: 499_999_999, blocked: true},
-		{name: "exact minimum", free: 500_000_000},
-		{name: "above minimum", free: 500_000_001},
+		{name: "below minimum", free: 999_999_999, blocked: true},
+		{name: "exact minimum", free: 1_000_000_000},
+		{name: "above minimum", free: 1_000_000_001},
 		{name: "cannot determine space", err: errors.New("filesystem unavailable"), blocked: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

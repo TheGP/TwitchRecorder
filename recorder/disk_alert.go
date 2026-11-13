@@ -15,8 +15,9 @@ import (
 	"time"
 )
 
-const lowDiskThresholdBytes uint64 = 1_000_000_000
-const minimumRecordingFreeBytes uint64 = 500_000_000
+const lowDiskThresholdBytes uint64 = 1_500_000_000
+const minimumRecordingFreeBytes uint64 = 1_000_000_000
+const minimumActiveRecordingFreeBytes uint64 = 100_000_000
 const diskCheckInterval = time.Minute
 
 var validTelegramToken = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]+$`)
@@ -41,9 +42,9 @@ func (alert *diskAlert) check(ctx context.Context, freeBytes uint64) error {
 	if alert.alerted && (!critical || alert.criticalAlerted) {
 		return nil
 	}
-	message := fmt.Sprintf("⚠️ Twitch recorder: low disk space on %s. %d MB free on the filesystem containing %s (below 1 GB).", alert.host, freeBytes/1_000_000, alert.outputDir)
+	message := fmt.Sprintf("⚠️ Twitch recorder: low disk space on %s. %d MB free on the filesystem containing %s (below 1.5 GB).", alert.host, freeBytes/1_000_000, alert.outputDir)
 	if critical {
-		message = fmt.Sprintf("🚨 Twitch recorder on %s: only %d MB free on the filesystem containing %s. New recordings are blocked below 500 MB and will resume automatically when at least 500 MB is available. Existing recordings are not stopped.", alert.host, freeBytes/1_000_000, alert.outputDir)
+		message = fmt.Sprintf("🚨 Twitch recorder on %s: only %d MB free on the filesystem containing %s. New recordings are blocked below 1 GB. Active recordings are stopped below 100 MB; captured media and chat are preserved. New recordings resume automatically when at least 1 GB is available.", alert.host, freeBytes/1_000_000, alert.outputDir)
 	}
 	if err := alert.notify(ctx, message); err != nil {
 		return err
@@ -60,7 +61,14 @@ func recordingSpaceError(freeBytes uint64, err error) error {
 		return fmt.Errorf("cannot check free disk space; new recording skipped: %w", err)
 	}
 	if freeBytes < minimumRecordingFreeBytes {
-		return fmt.Errorf("only %d bytes free; new recordings require at least 500 MB", freeBytes)
+		return fmt.Errorf("only %d bytes free; recordings require at least 1 GB", freeBytes)
+	}
+	return nil
+}
+
+func activeRecordingSpaceError(freeBytes uint64) error {
+	if freeBytes < minimumActiveRecordingFreeBytes {
+		return fmt.Errorf("only %d bytes free; active recordings stop below 100 MB", freeBytes)
 	}
 	return nil
 }

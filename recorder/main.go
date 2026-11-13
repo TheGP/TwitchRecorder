@@ -187,10 +187,10 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 					count, err := recordChat(chatCtx, chatIdentity, channel.login, chat.part, recordingStarted)
 					chatResult <- chatCaptureResult{count: count, err: err}
 				}()
-				command := exec.CommandContext(ctx, config.streamlink, "--output", recording.part, "https://www.twitch.tv/"+channel.login, channel.quality)
-				command.Stdout = os.Stdout
-				command.Stderr = os.Stderr
-				if err := command.Run(); err != nil && ctx.Err() == nil {
+				args := []string{"--output", recording.part, "https://www.twitch.tv/" + channel.login, channel.quality}
+				if err := runRecordingCommand(ctx, config.streamlink, args, func() (uint64, error) {
+					return diskFreeBytes(config.outputDir)
+				}, recordingDiskCheckInterval); err != nil && ctx.Err() == nil {
 					log.Printf("Streamlink exited for %s: %v", channel.login, err)
 				}
 				stopChat()

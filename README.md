@@ -16,9 +16,9 @@ Copy `.env.example` to `.env` and set `BOT_LOGIN` and `BOT_OAUTH`. The OAuth tok
 
 Set `CHAT_OAUTH` to a Twitch user token with the `chat:read` scope. The recorder validates it at startup and records Twitch IRC chat alongside every active Streamlink recording. Keep this token private in `.env`.
 
-Set `DEVELOPER_TELEGRAM_BOT_TOKEN` and `DEVELOPER_TELEGRAM_CHAT_ID` in `.env` for disk alerts. The app checks free space on the filesystem containing `OUTPUT_DIR` immediately and every minute. Below 1 GB (1,000,000,000 bytes), it sends one Telegram alert; a failed send is retried at the next check. Once free space rises to at least 1 GB, a later drop can trigger a new alert.
+Set `DEVELOPER_TELEGRAM_BOT_TOKEN` and `DEVELOPER_TELEGRAM_CHAT_ID` in `.env` for disk alerts. The app checks free space on the filesystem containing `OUTPUT_DIR` immediately and every minute. Below 1.5 GB (1,500,000,000 bytes), it sends one Telegram alert; a failed send is retried at the next check. Once free space rises to at least 1.5 GB, a later drop can trigger a new alert.
 
-Before starting each recording, the recorder checks free disk space again. Below 500 MB (500,000,000 bytes), it skips new media and chat recordings and sends a separate critical Telegram warning at the next disk check, even if the 1 GB warning was already sent. Existing recordings continue. New recordings resume on a later channel poll once at least 500 MB is free. If the disk check fails, it also skips the new recording. Critical warnings are deduplicated until space recovers to at least 500 MB; failed sends are retried on the next disk check.
+Before starting each recording, the recorder checks free disk space again. Below 1 GB (1,000,000,000 bytes), it skips new media and chat recordings. Active recordings continue below 1 GB: their space is checked every second, and Streamlink is stopped only below 100 MB (100,000,000 bytes). Streamlink receives an interrupt to flush its output; if it does not exit within five seconds, it is killed. Nonempty captured media and its chat sidecar are finalized normally. Failed disk checks block new recordings, but active recordings keep running and retry the check. New recordings resume on a later channel poll once at least 1 GB is free. These checks do not depend on Telegram availability. A separate critical Telegram warning is sent at the next alert check, even if the 1.5 GB warning was already sent. Critical warnings are deduplicated until space recovers to at least 1 GB; failed sends are retried on the next alert check.
 
 Set `CHANNEL_LOGINS` to comma-separated `username:quality` entries, for example `CHANNEL_LOGINS=n_y_x_official:audio_only,bcomplex_matia:best`. Each quality is passed as the Streamlink stream selector; `best`, `audio_only`, and names such as `720p60` are supported when available. A username without `:quality` defaults to `audio_only`. Repeating a username with different qualities is an error. The old `CHANNEL_LOGIN` setting still works when `CHANNEL_LOGINS` is unset. If neither is set, the app monitors `n_y_x_official` at `audio_only`.
 
@@ -39,7 +39,7 @@ npm run deploy
 pm2 logs twitch-recorder
 ```
 
-Deployment builds `./recorder` into the root `twitch-recorder` binary, starts or restarts PM2, and saves the PM2 process list. Run `pm2 startup` once on the server for reboot startup.
+Deployment builds `./recorder` into the root `twitch-recorder` binary, starts or restarts PM2 with a ten-second shutdown allowance, and saves the PM2 process list. Run `pm2 startup` once on the server for reboot startup.
 
 ## Transfer to Windows
 
