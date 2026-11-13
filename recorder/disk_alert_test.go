@@ -2,19 +2,91 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return roundTrip(request)
+}
+
+func TestTelegramProxyDoesNotAffectOtherClients(t *testing.T) {
+	var proxyCalls atomic.Int32
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Proxy-Authorization") != "" {
+			t.Error("proxy credentials reached the destination")
+		}
+		io.WriteString(w, "direct")
+	}))
+	defer origin.Close()
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyCalls.Add(1)
+		wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("test-user:test-password"))
+		if r.Header.Get("Proxy-Authorization") != wantAuth || r.URL.String() != origin.URL+"/check" {
+			t.Error("proxy did not receive the expected target and authentication")
+		}
+		io.WriteString(w, "proxied")
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL.User = url.UserPassword("test-user", "test-password")
+	telegram, err := newTelegramClient(proxyURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer telegram.CloseIdleConnections()
+	for _, request := range []struct {
+		client *http.Client
+		want   string
+	}{
+		{client: telegram, want: "proxied"},
+		{client: &http.Client{Timeout: time.Second}, want: "direct"},
+	} {
+		response, err := request.client.Get(origin.URL + "/check")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || string(body) != request.want {
+			t.Fatalf("response = %q, error = %v, want %q", body, err, request.want)
+		}
+	}
+	if proxyCalls.Load() != 1 {
+		t.Fatalf("proxy received %d requests, want only the Telegram client request", proxyCalls.Load())
+	}
+}
+
+func TestTelegramProxyConfiguration(t *testing.T) {
+	for _, address := range []string{"", "http://proxy.example:8888", "https://proxy.example:8443", "socks5://proxy.example:1080", "socks5h://proxy.example:1080"} {
+		client, err := newTelegramClient(address)
+		if err != nil {
+			t.Fatalf("valid proxy configuration rejected: %v", err)
+		}
+		client.CloseIdleConnections()
+	}
+	for _, address := range []string{"proxy.example:8888", "ftp://proxy.example:21", "socks5h://:1080", "http://user:private-secret@proxy.example:bad", "http://user:private-secret@proxy.example/path", "http://proxy.example?private-secret", "http://proxy.example#private-secret"} {
+		_, err := newTelegramClient(address)
+		if err == nil {
+			t.Error("invalid proxy configuration was accepted")
+		} else if strings.Contains(err.Error(), "private-secret") {
+			t.Fatal("proxy credentials leaked into the configuration error")
+		}
+	}
 }
 
 func TestDiskAlertSendsOnceUntilRecovery(t *testing.T) {

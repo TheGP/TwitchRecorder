@@ -22,6 +22,28 @@ const diskCheckInterval = time.Minute
 
 var validTelegramToken = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]+$`)
 
+func newTelegramClient(proxyAddress string) (*http.Client, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	proxyAddress = strings.TrimSpace(proxyAddress)
+	if proxyAddress == "" {
+		return client, nil
+	}
+	proxyURL, err := url.Parse(proxyAddress)
+	if err != nil || proxyURL.Hostname() == "" || proxyURL.RawQuery != "" || proxyURL.Fragment != "" || (proxyURL.Path != "" && proxyURL.Path != "/") {
+		return nil, errors.New("TELEGRAM_PROXY_URL must be a valid proxy URL without a path, query, or fragment")
+	}
+	proxyURL.Scheme = strings.ToLower(proxyURL.Scheme)
+	switch proxyURL.Scheme {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return nil, errors.New("TELEGRAM_PROXY_URL must use http, https, socks5, or socks5h")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyURL(proxyURL)
+	client.Transport = transport
+	return client, nil
+}
+
 type diskAlert struct {
 	outputDir       string
 	host            string

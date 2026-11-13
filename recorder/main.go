@@ -31,15 +31,16 @@ type channelConfig struct {
 }
 
 type config struct {
-	botLogin     string
-	token        string
-	telegramBot  string
-	telegramChat string
-	chatToken    string
-	channels     []channelConfig
-	outputDir    string
-	pollInterval time.Duration
-	streamlink   string
+	botLogin      string
+	token         string
+	telegramBot   string
+	telegramChat  string
+	telegramProxy string
+	chatToken     string
+	channels      []channelConfig
+	outputDir     string
+	pollInterval  time.Duration
+	streamlink    string
 }
 
 func main() {
@@ -89,6 +90,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	client := &http.Client{Timeout: 15 * time.Second}
+	telegramClient, err := newTelegramClient(config.telegramProxy)
+	if err != nil {
+		return err
+	}
+	if config.telegramProxy != "" {
+		log.Print("Telegram alerts use a configured proxy")
+	}
 	clientID, login, err := validateToken(ctx, client, config.token)
 	if err != nil {
 		return fmt.Errorf("validate BOT_OAUTH: %w", err)
@@ -106,7 +114,7 @@ func run() error {
 	monitors.Add(1)
 	go func() {
 		defer monitors.Done()
-		monitorDisk(ctx, client, config)
+		monitorDisk(ctx, telegramClient, config)
 	}()
 	for _, channel := range config.channels {
 		monitors.Add(1)
@@ -224,13 +232,14 @@ func monitorChannel(ctx context.Context, client *http.Client, clientID string, c
 
 func readConfig() (config, error) {
 	config := config{
-		botLogin:     strings.TrimSpace(os.Getenv("BOT_LOGIN")),
-		token:        strings.TrimPrefix(strings.TrimSpace(os.Getenv("BOT_OAUTH")), "oauth:"),
-		telegramBot:  strings.TrimPrefix(strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_BOT_TOKEN")), "bot"),
-		telegramChat: strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_CHAT_ID")),
-		chatToken:    strings.TrimPrefix(strings.TrimSpace(os.Getenv("CHAT_OAUTH")), "oauth:"),
-		outputDir:    strings.TrimSpace(os.Getenv("OUTPUT_DIR")),
-		pollInterval: 30 * time.Second,
+		botLogin:      strings.TrimSpace(os.Getenv("BOT_LOGIN")),
+		token:         strings.TrimPrefix(strings.TrimSpace(os.Getenv("BOT_OAUTH")), "oauth:"),
+		telegramBot:   strings.TrimPrefix(strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_BOT_TOKEN")), "bot"),
+		telegramChat:  strings.TrimSpace(os.Getenv("DEVELOPER_TELEGRAM_CHAT_ID")),
+		telegramProxy: strings.TrimSpace(os.Getenv("TELEGRAM_PROXY_URL")),
+		chatToken:     strings.TrimPrefix(strings.TrimSpace(os.Getenv("CHAT_OAUTH")), "oauth:"),
+		outputDir:     strings.TrimSpace(os.Getenv("OUTPUT_DIR")),
+		pollInterval:  30 * time.Second,
 	}
 	if config.botLogin == "" || config.token == "" {
 		return config, errors.New("BOT_LOGIN and BOT_OAUTH are required in .env")
