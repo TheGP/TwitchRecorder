@@ -237,6 +237,16 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .player-panel.is-empty .player-subtitle { margin-bottom: 0; }
 .timeline input { width: 100%; accent-color: #8de8ca; cursor: pointer; }
 .timeline input:disabled { cursor: default; }
+.seek-track { position: relative; padding-bottom: 17px; }
+.seek-track input { display: block; margin: 0; }
+.bookmark-markers { position: absolute; left: 8px; right: 8px; bottom: 0; height: 17px; }
+.bookmark-marker {
+  position: absolute; top: -3px; transform: translateX(-50%);
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; background: transparent;
+}
+.bookmark-marker::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #f5cc71; }
+.bookmark-marker:hover::after, .bookmark-marker:focus-visible::after { background: #fff0ba; box-shadow: 0 0 0 4px #f5cc7130; }
 .time-labels { justify-content: space-between; margin-top: 1px; color: #91a3ac; font-size: 11px; font-variant-numeric: tabular-nums; }
 .player-control-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -249,6 +259,26 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   box-shadow: 0 9px 25px #62edbb2e;
 }
 .play-button:hover:not(:disabled) { background: #a6f5d9; }
+.transport-controls { grid-column: 2; display: flex; align-items: center; justify-content: center; gap: 12px; }
+.skip-button {
+  min-width: 58px; min-height: 42px; padding: 5px 9px; border-radius: 10px;
+  border: 1px solid #344b56; background: #172630; color: #cbe1df; font-size: 12px;
+}
+.skip-button:hover:not(:disabled) { border-color: #81e5c9; color: #a6f5d9; }
+.bookmarks-panel { margin-top: 14px; border-top: 1px solid #293944; padding-top: 12px; }
+.bookmarks-panel[hidden] { display: none; }
+.bookmark-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.bookmark-controls input {
+  flex: 1; min-width: 120px; padding: 9px 10px; color: #e8edf1; background: #101b24;
+  border: 1px solid #34414c; border-radius: 8px; font-size: 12px;
+}
+.bookmark-list { list-style: none; display: flex; flex-wrap: wrap; gap: 7px; padding: 0; margin: 10px 0 0; }
+.bookmark-list:empty { display: none; }
+.bookmark-list li { display: flex; max-width: 100%; border: 1px solid #665b3e; border-radius: 8px; background: #2c2a20; }
+.bookmark-jump, .bookmark-remove { border: 0; background: transparent; color: #f5dfa6; min-height: 34px; }
+.bookmark-jump { padding: 6px 9px; font-size: 11px; text-align: left; overflow-wrap: anywhere; }
+.bookmark-remove { flex: 0 0 34px; padding: 4px 8px; font-size: 18px; }
+.bookmark-remove:hover { color: #ffb5b3; background: #412629; border-radius: 0 8px 8px 0; }
 .player-options { grid-column: 3; justify-self: end; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
 .player-options label { color: #9eafb8; font-size: 11px; white-space: nowrap; }
 .player-options input { width: 85px; margin-left: 5px; accent-color: #8ce5cb; vertical-align: middle; }
@@ -296,7 +326,8 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
 .chat-message:hover { background: #14212b; }
 .chat-time { color: #667985; font-variant-numeric: tabular-nums; }
 .chat-author { max-width: 180px; overflow: hidden; text-overflow: ellipsis; font-weight: 750; white-space: nowrap; }
-.chat-text { color: #dce4e9; overflow-wrap: anywhere; }
+.chat-text { color: #dce4e9; overflow-wrap: anywhere; white-space: pre-wrap; font-family: system-ui, -apple-system, "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.chat-emote { display: inline-block; height: 28px; max-width: 112px; width: auto; object-fit: contain; vertical-align: middle; }
 .chat-empty { margin: 0; padding: 18px 12px; color: #718491; font-size: 11px; text-align: center; }
 .chat-empty[hidden] { display: none; }
 
@@ -309,11 +340,14 @@ input[type="checkbox"] { accent-color: #82e6c9; width: 15px; height: 15px; }
   .app-header { align-items: flex-start; flex-direction: column; gap: 12px; padding: 22px 0; }
   .header-right { width: 100%; justify-content: space-between; }
   .main-layout { padding-top: 20px; }
-  .player-body.audio-mode { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; }
-  .player-body.audio-mode .artwork { width: 96px; }
+  .player-body.audio-mode { display: block; }
+  .player-body.audio-mode .artwork { width: 96px; margin: 0 auto 12px; }
   .avatar-fallback { font-size: 38px; }
   .player-control-row { grid-template-columns: 1fr; gap: 10px; }
-  .play-button, .player-options { grid-column: 1; }
+  .transport-controls, .player-options { grid-column: 1; }
+  .player-options { justify-self: center; }
+  .chat-message { grid-template-columns: 44px minmax(0, 1fr); gap: 2px 8px; }
+  .chat-text { grid-column: 2; }
   .section-heading h2 { font-size: 27px; }
 }
 @media (max-width: 440px) {

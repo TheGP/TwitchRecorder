@@ -7,6 +7,7 @@
   <title>Twitch Listener</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
+  <script src="/chat-emotes.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -45,11 +46,18 @@
             </div>
             <p id="player-subtitle" class="player-subtitle">Select a file below to start listening or watching.</p>
             <div class="timeline">
-              <input id="seek" type="range" min="0" max="100" value="0" step="1" disabled aria-label="Playback position">
+              <div class="seek-track">
+                <input id="seek" type="range" min="0" max="100" value="0" step="1" disabled aria-label="Playback position">
+                <div id="bookmark-markers" class="bookmark-markers" role="group" aria-label="Bookmarked moments"></div>
+              </div>
               <div class="time-labels"><span id="elapsed">0:00</span><span id="duration">0:00</span></div>
             </div>
             <div class="player-control-row">
-              <button id="play" class="play-button" aria-label="Play" disabled>▶</button>
+              <div class="transport-controls">
+                <button id="skip-back" class="skip-button" aria-label="Back 30 seconds" title="Back 30 seconds" disabled>↶ 30s</button>
+                <button id="play" class="play-button" aria-label="Play" disabled>▶</button>
+                <button id="skip-forward" class="skip-button" aria-label="Forward 30 seconds" title="Forward 30 seconds" disabled>30s ↷</button>
+              </div>
               <div class="player-options">
                 <label>Volume <input id="volume" type="range" min="0" max="1" value="1" step="0.05" aria-label="Volume"></label>
                 <button id="fullscreen" class="fullscreen-button" title="Fullscreen" aria-label="Fullscreen" hidden>
@@ -59,6 +67,13 @@
                 </button>
               </div>
             </div>
+            <section id="bookmarks-panel" class="bookmarks-panel" aria-label="Recording bookmarks" hidden>
+              <div class="bookmark-controls">
+                <input id="bookmark-note" type="text" maxlength="120" placeholder="Song or note (optional)" aria-label="Bookmark note">
+                <button id="add-bookmark" class="small-button primary-subtle" disabled>＋ Bookmark this moment</button>
+              </div>
+              <ul id="bookmark-list" class="bookmark-list" aria-label="Saved moments"></ul>
+            </section>
             <p id="notice" class="notice" role="status"></p>
             <section id="chat-panel" class="chat-panel" aria-labelledby="chat-title" hidden>
               <div class="chat-heading">

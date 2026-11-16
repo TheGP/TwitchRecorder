@@ -2,6 +2,10 @@
   "name": "twitch-recorder",
   "private": true,
   "scripts": {
+    "test": "node --test listener/*_test.cjs",
     "deploy": "bash deploy.sh"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
   }
 }

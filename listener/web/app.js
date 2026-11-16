@@ -5,7 +5,8 @@ const el = Object.fromEntries([
   "player-panel", "artwork", "avatar", "avatar-fallback", "player-body", "video", "audio", "player-title", "player-subtitle",
   "seek", "elapsed", "duration", "play", "volume",
   "fullscreen", "player-watched", "player-favorite", "notice", "chat-toggle", "chat-panel",
-  "chat-messages", "chat-empty", "chat-status"
+  "chat-messages", "chat-empty", "chat-status", "skip-back", "skip-forward",
+  "bookmarks-panel", "bookmark-note", "add-bookmark", "bookmark-markers", "bookmark-list"
 ].map((id) => [id, document.getElementById(id)]));
 
 const localStateKey = "twitch-listener-player-v1";
@@ -17,7 +18,8 @@ const view = {
   info: null, media: null, start: 0, seeking: false, loading: false,
   playing: false, requestedPlay: false, retryCount: 0, streamVersion: 0,
   leaving: false, lastProgressSave: 0, lastLocalSave: 0,
-  chat: [], chatName: null, chatVisible: false, chatIndex: -1
+  chat: [], chatName: null, chatVisible: false, chatIndex: -1, chatEmotes: new Map(),
+  bookmarkPending: new Set()
 };
 
 async function api(path, options = {}) {
@@ -217,6 +219,7 @@ async function refresh() {
     updateWatchedButton();
     updateFavoriteButton();
     updateChatButton();
+    renderBookmarks();
     notify("");
   } catch (error) {
     notify(`Library unavailable: ${error.message}`);
@@ -266,7 +269,7 @@ async function deleteRecording(name) {
     notify("Favorite recordings are protected. Remove the star before deleting.");
     return;
   }
-  if (!window.confirm(`Permanently delete ${name} from ${el.folder.textContent}?`)) return;
+  if (!window.confirm(`Permanently delete ${name} from ${el.folder.textContent}? Its chat and bookmarks will also be removed.`)) return;
   const wasCurrent = view.current === name;
   const position = view.start + (view.media?.currentTime || 0);
   if (wasCurrent) {
@@ -293,7 +296,7 @@ async function deleteRecording(name) {
       el.play.textContent = "▶";
       el.play.setAttribute("aria-label", "Play");
       el.fullscreen.hidden = true;
-      for (const id of ["seek", "play", "player-watched", "player-favorite", "chat-toggle"]) el[id].disabled = true;
+      for (const id of ["seek", "play", "skip-back", "skip-forward", "add-bookmark", "player-watched", "player-favorite", "chat-toggle"]) el[id].disabled = true;
       saveLocalState(true, 0);
     }
     await refresh();
@@ -310,6 +313,10 @@ function stopMedia() {
   view.streamVersion++;
   view.loading = false;
   view.media = null;
+  el["bookmarks-panel"].hidden = true;
+  el["bookmark-markers"].replaceChildren();
+  el["bookmark-list"].replaceChildren();
+  el["bookmark-note"].value = "";
   el.avatar.hidden = true;
   el.avatar.removeAttribute("src");
   el["avatar-fallback"].hidden = true;
@@ -328,6 +335,7 @@ function resetChat() {
   view.chatName = null;
   view.chatVisible = false;
   view.chatIndex = -1;
+  view.chatEmotes = new Map();
   el["chat-panel"].hidden = true;
   el["chat-toggle"].setAttribute("aria-expanded", "false");
   el["chat-messages"].replaceChildren();
@@ -448,7 +456,7 @@ async function openRecording(name, options = {}) {
   view.retryCount = 0;
   view.lastProgressSave = 0;
   el["player-panel"].classList.remove("is-empty");
-  for (const id of ["seek", "play", "player-watched", "chat-toggle"]) el[id].disabled = true;
+  for (const id of ["seek", "play", "skip-back", "skip-forward", "add-bookmark", "player-watched", "chat-toggle"]) el[id].disabled = true;
   notify("Inspecting recording…");
   el["player-title"].textContent = date
     ? `${channel.charAt(0).toUpperCase()}${channel.slice(1)} · ${formatRecordingDate(date)}`
@@ -470,10 +478,11 @@ async function openRecording(name, options = {}) {
     if (!date) el["player-subtitle"].textContent = `${channel} · ${formatTime(info.duration)}`;
     el.duration.textContent = formatTime(info.duration);
     el.seek.max = String(Math.floor(info.duration));
-    for (const id of ["seek", "play", "player-watched"]) el[id].disabled = false;
+    for (const id of ["seek", "play", "skip-back", "skip-forward", "player-watched"]) el[id].disabled = false;
     el.fullscreen.hidden = info.kind !== "video";
     updateWatchedButton();
     updateChatButton();
+    renderBookmarks();
     notify("");
     const file = view.recordings.find((item) => item.name === name);
     const saved = file?.watched ? 0 : (options.start ?? file?.progress ?? 0);
@@ -491,6 +500,79 @@ function updateTimeline() {
   if (!view.seeking) el.seek.value = String(Math.floor(current));
   el.elapsed.textContent = formatTime(current);
   syncChat(current);
+}
+
+function currentPosition() {
+  return view.start + (view.media?.currentTime || 0);
+}
+
+function seekTo(seconds) {
+  if (!view.media || !view.info || !Number.isFinite(seconds)) return;
+  clearTimeout(seekReleaseTimer);
+  view.seeking = false;
+  playAt(seconds, view.loading ? view.requestedPlay : !view.media.paused);
+}
+
+function renderBookmarks() {
+  const file = view.recordings.find((item) => item.name === view.current);
+  el["bookmarks-panel"].hidden = !file || !view.info;
+  el["add-bookmark"].disabled = !file || !view.info || view.bookmarkPending.has(view.current);
+  el["bookmark-markers"].replaceChildren();
+  el["bookmark-list"].replaceChildren();
+  if (!file || !view.info) return;
+  for (const bookmark of file.bookmarks || []) {
+    const label = `${formatTime(bookmark.seconds)} · ${bookmark.label}`;
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "bookmark-marker";
+    marker.style.left = `${Math.max(0, Math.min(100, bookmark.seconds / view.info.duration * 100))}%`;
+    marker.title = label;
+    marker.setAttribute("aria-label", `Jump to bookmark ${label}`);
+    marker.addEventListener("click", () => seekTo(bookmark.seconds));
+    el["bookmark-markers"].append(marker);
+    const row = document.createElement("li");
+    const jump = document.createElement("button");
+    jump.type = "button";
+    jump.className = "bookmark-jump";
+    jump.textContent = label;
+    jump.addEventListener("click", () => seekTo(bookmark.seconds));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "bookmark-remove";
+    remove.textContent = "×";
+    remove.title = `Remove bookmark ${label}`;
+    remove.setAttribute("aria-label", `Remove bookmark ${label}`);
+    remove.disabled = view.bookmarkPending.has(view.current);
+    remove.addEventListener("click", () => changeBookmark(bookmark.id));
+    row.append(jump, remove);
+    el["bookmark-list"].append(row);
+  }
+}
+
+async function changeBookmark(removeID = null) {
+  const name = view.current;
+  if (!name || !view.info || view.bookmarkPending.has(name)) return;
+  const seconds = currentPosition();
+  const label = el["bookmark-note"].value.trim();
+  view.bookmarkPending.add(name);
+  renderBookmarks();
+  try {
+    const result = await api(`/api/recordings/${encodeURIComponent(name)}/bookmarks${removeID ? `/${encodeURIComponent(removeID)}` : ""}`, {
+      method: removeID ? "DELETE" : "POST",
+      ...(removeID ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seconds, label }) })
+    });
+    const file = view.recordings.find((item) => item.name === name);
+    if (file) file.bookmarks = result.bookmarks;
+    if (view.current === name) {
+      if (!removeID && el["bookmark-note"].value.trim() === label) el["bookmark-note"].value = "";
+      notify(removeID ? "Bookmark removed." : `Bookmarked ${formatTime(seconds)}.`);
+    }
+  } catch (error) {
+    if (view.current === name) notify(`Could not save bookmark: ${error.message}`);
+  } finally {
+    view.bookmarkPending.delete(name);
+    renderBookmarks();
+  }
 }
 
 function updateWatchedButton() {
@@ -527,9 +609,11 @@ function syncChat(seconds) {
     else high = middle;
   }
   if (low === view.chatIndex) return;
+  const previous = view.chatIndex;
   view.chatIndex = low;
+  const appendOnly = previous >= 0 && low > previous && low - previous <= 200;
   const rows = document.createDocumentFragment();
-  for (const message of view.chat.slice(Math.max(0, low - 200), low)) {
+  for (const message of view.chat.slice(appendOnly ? previous : Math.max(0, low - 200), low)) {
     const row = document.createElement("div");
     row.className = "chat-message";
     const time = document.createElement("span");
@@ -541,11 +625,13 @@ function syncChat(seconds) {
     if (/^#[0-9a-f]{6}$/i.test(message.color || "")) author.style.color = message.color;
     const text = document.createElement("span");
     text.className = "chat-text";
-    text.textContent = message.message;
+    ChatEmotes.render(text, message, view.chatEmotes);
     row.append(time, author, text);
     rows.append(row);
   }
-  el["chat-messages"].replaceChildren(rows);
+  if (appendOnly) el["chat-messages"].append(rows);
+  else el["chat-messages"].replaceChildren(rows);
+  while (el["chat-messages"].childElementCount > 200) el["chat-messages"].firstElementChild.remove();
   el["chat-empty"].hidden = low !== 0;
   el["chat-status"].textContent = `${low} / ${view.chat.length}`;
   el["chat-messages"].scrollTop = el["chat-messages"].scrollHeight;
@@ -584,6 +670,13 @@ async function toggleChat() {
     el["chat-panel"].hidden = false;
     el["chat-toggle"].setAttribute("aria-expanded", "true");
     syncChat(view.start + (view.media?.currentTime || 0));
+    const channel = recordingParts(name).channel;
+    ChatEmotes.load(channel, view.chat[0]?.channel_id).then((emotes) => {
+      if (view.current !== name || view.chatName !== name) return;
+      view.chatEmotes = emotes;
+      view.chatIndex = -1;
+      syncChat(currentPosition());
+    });
   } catch (error) {
     notify(`Cannot open chat: ${error.message}`);
   } finally {
@@ -710,6 +803,12 @@ async function toggleFullscreen() {
 }
 
 el.play.addEventListener("click", togglePlayback);
+el["skip-back"].addEventListener("click", () => seekTo(currentPosition() - 30));
+el["skip-forward"].addEventListener("click", () => seekTo(currentPosition() + 30));
+el["add-bookmark"].addEventListener("click", () => changeBookmark());
+el["bookmark-note"].addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); changeBookmark(); }
+});
 document.addEventListener("keydown", (event) => {
   if (event.key !== " " || event.repeat || event.altKey || event.ctrlKey || event.metaKey || !view.media) return;
   const target = event.target;
@@ -731,9 +830,7 @@ el.video.addEventListener("dblclick", () => {
 function commitSeek() {
   clearTimeout(seekReleaseTimer);
   if (!view.media || !view.info) return;
-  const position = Number(el.seek.value);
-  view.seeking = false;
-  playAt(position, !view.media.paused);
+  seekTo(Number(el.seek.value));
 }
 
 function finishSeekAfterRelease() {

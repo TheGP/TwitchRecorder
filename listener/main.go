@@ -30,18 +30,20 @@ import (
 var webFiles embed.FS
 
 type config struct {
-	MediaDir   string `json:"media_dir"`
-	ListenAddr string `json:"listen_addr"`
+	MediaDir      string `json:"media_dir"`
+	ListenAddr    string `json:"listen_addr"`
+	LANListenAddr string `json:"lan_listen_addr,omitempty"`
 }
 
 type recording struct {
-	Name     string    `json:"name"`
-	Size     int64     `json:"size"`
-	Modified time.Time `json:"modified"`
-	Watched  bool      `json:"watched"`
-	Favorite bool      `json:"favorite"`
-	Progress float64   `json:"progress,omitempty"`
-	HasChat  bool      `json:"has_chat"`
+	Name      string     `json:"name"`
+	Size      int64      `json:"size"`
+	Modified  time.Time  `json:"modified"`
+	Watched   bool       `json:"watched"`
+	Favorite  bool       `json:"favorite"`
+	Progress  float64    `json:"progress,omitempty"`
+	HasChat   bool       `json:"has_chat"`
+	Bookmarks []bookmark `json:"bookmarks,omitempty"`
 }
 
 type mediaInfo struct {
@@ -65,9 +67,10 @@ var imageTag = regexp.MustCompile(`(?i)<meta\b[^>]*\b(?:property|name)=["'](?:og
 var imageContent = regexp.MustCompile(`(?i)\bcontent=["']([^"']+)["']`)
 
 type watchedFile struct {
-	Watched   map[string]bool    `json:"watched"`
-	Progress  map[string]float64 `json:"progress,omitempty"`
-	Favorites map[string]bool    `json:"favorites,omitempty"`
+	Watched   map[string]bool       `json:"watched"`
+	Progress  map[string]float64    `json:"progress,omitempty"`
+	Favorites map[string]bool       `json:"favorites,omitempty"`
+	Bookmarks map[string][]bookmark `json:"bookmarks,omitempty"`
 }
 
 type watchedStore struct {
@@ -120,9 +123,9 @@ func run(configPath string) error {
 	if cfg.MediaDir == "" || cfg.ListenAddr == "" {
 		return errors.New("media_dir and listen_addr are required")
 	}
-	host, _, err := net.SplitHostPort(cfg.ListenAddr)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		return errors.New("listen_addr must use a loopback IP, for example 127.0.0.1:8787")
+	addresses, err := listenAddresses(cfg)
+	if err != nil {
+		return err
 	}
 	mediaDir, err := filepath.Abs(cfg.MediaDir)
 	if err != nil {
@@ -149,13 +152,51 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           localHostOnly(cfg.ListenAddr, mux),
-		ReadHeaderTimeout: 5 * time.Second,
+	listeners := make([]net.Listener, 0, len(addresses))
+	defer func() {
+		for _, listener := range listeners {
+			listener.Close()
+		}
+	}()
+	for i, addr := range addresses {
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			if i > 0 {
+				log.Printf("LAN player unavailable at %s: %v", addr, err)
+				continue
+			}
+			return fmt.Errorf("listen at %s: %w", addr, err)
+		}
+		listeners = append(listeners, listener)
 	}
-	log.Printf("Listening at http://%s; media folder %s", cfg.ListenAddr, mediaDir)
-	return server.ListenAndServe()
+	serverErrors := make(chan error, len(listeners))
+	for i, listener := range listeners {
+		addr := addresses[i]
+		server := &http.Server{
+			Addr:              addr,
+			Handler:           localHostOnly(addr, mux),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		log.Printf("Listening at http://%s; media folder %s", addr, mediaDir)
+		go func() { serverErrors <- server.Serve(listener) }()
+	}
+	return <-serverErrors
+}
+
+func listenAddresses(cfg config) ([]string, error) {
+	host, _, err := net.SplitHostPort(cfg.ListenAddr)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		return nil, errors.New("listen_addr must use a loopback IP, for example 127.0.0.1:8787")
+	}
+	addresses := []string{cfg.ListenAddr}
+	if cfg.LANListenAddr != "" {
+		host, _, err = net.SplitHostPort(cfg.LANListenAddr)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsPrivate() {
+			return nil, errors.New("lan_listen_addr must use this computer's private LAN IP, for example 192.168.1.10:8787")
+		}
+		addresses = append(addresses, cfg.LANListenAddr)
+	}
+	return addresses, nil
 }
 
 func localHostOnly(addr string, next http.Handler) http.Handler {
@@ -163,6 +204,18 @@ func localHostOnly(addr string, next http.Handler) http.Handler {
 		if r.Host != addr {
 			http.Error(w, "invalid host", http.StatusForbidden)
 			return
+		}
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		ip := net.ParseIP(host)
+		if err != nil || ip == nil || (!ip.IsLoopback() && !ip.IsPrivate()) {
+			http.Error(w, "local network access only", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+addr {
+				http.Error(w, "cross-origin writes are not allowed", http.StatusForbidden)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -185,6 +238,9 @@ func (a *app) routes() (http.Handler, error) {
 	mux.HandleFunc("GET /api/recordings/{name}/info", a.infoHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/chat", a.chatHandler)
 	mux.HandleFunc("GET /api/recordings/{name}/stream", a.streamHandler)
+	mux.HandleFunc("GET /api/recordings/{name}/bookmarks", a.bookmarkHandler)
+	mux.HandleFunc("POST /api/recordings/{name}/bookmarks", a.bookmarkHandler)
+	mux.HandleFunc("DELETE /api/recordings/{name}/bookmarks/{id}", a.bookmarkHandler)
 	mux.HandleFunc("GET /api/avatars/{login}", a.avatarHandler)
 	mux.HandleFunc("DELETE /api/recordings/{name}", a.deleteHandler)
 	return mux, nil
@@ -208,7 +264,7 @@ func (a *app) files() ([]recording, error) {
 		watched, progress := a.store.status(name)
 		chatInfo, chatErr := os.Lstat(chatPath(filepath.Join(a.dir, name)))
 		hasChat := chatErr == nil && chatInfo.Mode().IsRegular()
-		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Favorite: a.store.isFavorite(name), Progress: progress, HasChat: hasChat})
+		files = append(files, recording{Name: name, Size: info.Size(), Modified: info.ModTime(), Watched: watched, Favorite: a.store.isFavorite(name), Progress: progress, HasChat: hasChat, Bookmarks: a.store.bookmarks(name)})
 	}
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].Modified.Equal(files[j].Modified) {
@@ -674,6 +730,9 @@ func loadWatched(path string) (*watchedStore, error) {
 	if store.data.Favorites == nil {
 		store.data.Favorites = make(map[string]bool)
 	}
+	if store.data.Bookmarks == nil {
+		store.data.Bookmarks = make(map[string][]bookmark)
+	}
 	return store, nil
 }
 
@@ -695,7 +754,9 @@ func (s *watchedStore) setFavorite(name string, favorite bool) error {
 	} else {
 		delete(favorites, name)
 	}
-	return s.save(watchedFile{Watched: s.data.Watched, Progress: s.data.Progress, Favorites: favorites})
+	next := s.data
+	next.Favorites = favorites
+	return s.save(next)
 }
 
 func (s *watchedStore) isWatched(name string) bool {
@@ -728,7 +789,9 @@ func (s *watchedStore) set(names []string, watched bool) error {
 			delete(next, name)
 		}
 	}
-	return s.save(watchedFile{Watched: next, Progress: progress, Favorites: s.data.Favorites})
+	state := s.data
+	state.Watched, state.Progress = next, progress
+	return s.save(state)
 }
 
 func (s *watchedStore) setProgress(name string, seconds float64) error {
@@ -746,13 +809,15 @@ func (s *watchedStore) setProgress(name string, seconds float64) error {
 	} else {
 		progress[name] = seconds
 	}
-	return s.save(watchedFile{Watched: s.data.Watched, Progress: progress, Favorites: s.data.Favorites})
+	next := s.data
+	next.Progress = progress
+	return s.save(next)
 }
 
 func (s *watchedStore) remove(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.data.Watched[name] && s.data.Progress[name] == 0 {
+	if !s.data.Watched[name] && s.data.Progress[name] == 0 && len(s.data.Bookmarks[name]) == 0 {
 		return nil
 	}
 	checked := make(map[string]bool, len(s.data.Watched))
@@ -767,7 +832,15 @@ func (s *watchedStore) remove(name string) error {
 			progress[key] = value
 		}
 	}
-	return s.save(watchedFile{Watched: checked, Progress: progress, Favorites: s.data.Favorites})
+	bookmarks := make(map[string][]bookmark, len(s.data.Bookmarks))
+	for key, value := range s.data.Bookmarks {
+		if key != name {
+			bookmarks[key] = value
+		}
+	}
+	next := s.data
+	next.Watched, next.Progress, next.Bookmarks = checked, progress, bookmarks
+	return s.save(next)
 }
 
 // save is called with the store mutex held.

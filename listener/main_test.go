@@ -10,6 +10,62 @@ import (
 	"testing"
 )
 
+func TestListenAddresses(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cfg  config
+		want int
+	}{
+		{"local default", config{ListenAddr: "127.0.0.1:8787"}, 1},
+		{"optional LAN", config{ListenAddr: "127.0.0.1:8787", LANListenAddr: "192.168.1.103:8787"}, 2},
+		{"public primary", config{ListenAddr: "8.8.8.8:8787"}, 0},
+		{"wildcard primary", config{ListenAddr: "0.0.0.0:8787"}, 0},
+		{"public LAN", config{ListenAddr: "127.0.0.1:8787", LANListenAddr: "8.8.8.8:8787"}, 0},
+		{"wildcard LAN", config{ListenAddr: "127.0.0.1:8787", LANListenAddr: "0.0.0.0:8787"}, 0},
+		{"hostname LAN", config{ListenAddr: "127.0.0.1:8787", LANListenAddr: "example.com:8787"}, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			addresses, err := listenAddresses(test.cfg)
+			if test.want == 0 {
+				if err == nil {
+					t.Fatal("expected invalid network address to be rejected")
+				}
+				return
+			}
+			if err != nil || len(addresses) != test.want || addresses[0] != test.cfg.ListenAddr {
+				t.Fatalf("listenAddresses = %v, %v", addresses, err)
+			}
+			if test.want == 2 && addresses[1] != test.cfg.LANListenAddr {
+				t.Fatalf("LAN address = %q", addresses[1])
+			}
+		})
+	}
+}
+
+func TestLocalHostOnlyRejectsUntrustedRequests(t *testing.T) {
+	const addr = "192.168.1.103:8787"
+	handler := localHostOnly(addr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, test := range []struct {
+		host, peer string
+		want       int
+	}{
+		{addr, "192.168.1.25:50000", http.StatusNoContent},
+		{addr, "127.0.0.1:50000", http.StatusNoContent},
+		{"attacker.example:8787", "192.168.1.25:50000", http.StatusForbidden},
+		{addr, "203.0.113.25:50000", http.StatusForbidden},
+	} {
+		request := httptest.NewRequest(http.MethodGet, "http://"+test.host+"/", nil)
+		request.RemoteAddr = test.peer
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Fatalf("host %q, peer %q: status %d, want %d", test.host, test.peer, response.Code, test.want)
+		}
+	}
+}
+
 func TestWatchedStatusPersistsAndBulkUpdate(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"alpha-2026-09-21.ts", "beta-2026-09-21.ts"} {

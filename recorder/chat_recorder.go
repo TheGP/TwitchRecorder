@@ -43,6 +43,8 @@ type chatRecord struct {
 	Display    string            `json:"display_name,omitempty"`
 	Message    string            `json:"message"`
 	MessageID  string            `json:"message_id,omitempty"`
+	Emotes     string            `json:"emotes,omitempty"`
+	ChannelID  string            `json:"channel_id,omitempty"`
 	Badges     map[string]string `json:"badges,omitempty"`
 	Color      string            `json:"color,omitempty"`
 	Moderator  bool              `json:"moderator,omitempty"`
@@ -250,6 +252,8 @@ func parseChatMessage(line string, receivedAt time.Time) (chatRecord, bool) {
 		Display:    tags["display-name"],
 		Message:    message,
 		MessageID:  tags["id"],
+		Emotes:     tags["emotes"],
+		ChannelID:  tags["room-id"],
 		Badges:     parseBadges(tags["badges"]),
 		Color:      tags["color"],
 		Moderator:  tags["mod"] == "1",

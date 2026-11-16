@@ -34,6 +34,14 @@ func TestParseChatMessageIgnoresNonMessages(t *testing.T) {
 	}
 }
 
+func TestParseChatMessagePreservesNativeEmotesAndChannelID(t *testing.T) {
+	line := `@emotes=25:2-6,8-12;room-id=123456 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #dj :🎵 Kappa Kappa`
+	record, ok := parseChatMessage(line, time.Now())
+	if !ok || record.Emotes != "25:2-6,8-12" || record.ChannelID != "123456" || record.Message != "🎵 Kappa Kappa" {
+		t.Fatalf("emote metadata was lost: %+v", record)
+	}
+}
+
 func TestChatOffsetUsesRecordingStart(t *testing.T) {
 	started := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	if got := chatOffset(started, started.Add(12*time.Second+500*time.Millisecond)); got != 12.5 {
